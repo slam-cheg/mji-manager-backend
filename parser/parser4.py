@@ -1,0 +1,734 @@
+import sys
+import json
+import re
+from pathlib import Path
+import pandas as pd
+
+# --- ДОЧЕРНИЕ ФУНКЦИИ ПАРСЕРА ---
+def parse_roof_section(df, template_roof):
+    import re
+    result = json.loads(json.dumps(template_roof))
+    log_output = []
+
+    def log(msg):
+        print(msg)
+        log_output.append(msg)
+
+    start_row = None
+    for i in range(len(df)):
+        val = str(df.iloc[i, 0]).strip().lower() if not pd.isna(df.iloc[i, 0]) else ""
+        if val == "крыша":
+            start_row = i
+            log(f"\U0001f50d Найдена строка 'Крыша' на {i} строке")
+            break
+
+    if start_row is None:
+        log("\u274c Строка 'Крыша' не найдена")
+        return result, log_output
+
+    row = start_row + 1
+    col = 0
+
+    result["Конструкция крыши"] = str(df.iloc[row, col]).strip() if not pd.isna(df.iloc[row, col]) else ""
+    log(f"[{row}, A] Конструкция крыши: {result['Конструкция крыши']}")
+    row += 1
+
+    while row < len(df):
+        val = str(df.iloc[row, col]) if not pd.isna(df.iloc[row, col]) else ""
+        log(f"[{row}, A] '{val}'")
+
+        if ":" in val:
+            log(f"⏭ Пропускаем '{val}' (метка, не вложенный элемент)")
+            row += 1
+            continue
+
+        result["Материал кровли"] = val.strip()
+        log(f"Материал кровли: {val.strip()}")
+        row += 1
+
+        val2 = str(df.iloc[row, col]) if not pd.isna(df.iloc[row, col]) else ""
+        match = re.search(r"(\d+[.,]?\d*)", val2)
+        if match:
+            result["Площадь кровли, м²"] = float(match.group(1).replace(",", "."))
+            log(f"📏 Площадь кровли, м²: {result['Площадь кровли, м²']} (из строки '{val2}')")
+        else:
+            log(f"⚠ Не удалось извлечь площадь из: '{val2}'")
+        row += 1
+        break
+
+    current_nested = None
+    for r in range(start_row, len(df)):
+        first_col_value = str(df.iloc[r, 0]).strip().lower() if not pd.isna(df.iloc[r, 0]) else ""
+        if first_col_value == "водоотвод":
+            log(f"✅ Достигнут элемент 'Водоотвод', прекращаем обработку крыши")
+            break
+
+        for c in [1, 2]:
+            if c >= len(df.columns):
+                continue
+            val = str(df.iloc[r, c]) if not pd.isna(df.iloc[r, c]) else ""
+            if not val:
+                continue
+
+            log(f"[{r}, {chr(65+c)}] '{val}'")
+
+            if ":" in val:
+                key, description = val.split(":", 1)
+                key = key.strip()
+                if key in result:
+                    result[key]["Описание дефектов"] = description.strip()
+                    result[key]["Оц. по пред. обсл."] = str(df.iloc[r, 4]) if len(df.columns) > 4 and not pd.isna(df.iloc[r, 4]) else ""
+                    result[key]["% деф. части"] = int(df.iloc[r, 5]) if len(df.columns) > 5 and not pd.isna(df.iloc[r, 5]) and str(df.iloc[r, 5]).isdigit() else 0
+                    result[key]["Оценка"] = str(df.iloc[r, 6]) if len(df.columns) > 6 and not pd.isna(df.iloc[r, 6]) else ""
+                    log(f"🟩 Вложенный элемент '{key}': {result[key]}")
+                    current_nested = key
+            elif current_nested:
+                result[current_nested]["Описание дефектов"] += " " + val.strip()
+                log(f"➕ Дополнение к описанию '{current_nested}': {val.strip()}")
+    
+    return result, log_output
+
+def parse_vodootvod_section(df, template_vodootvod, start_row):
+    result = json.loads(json.dumps(template_vodootvod))
+    row = start_row
+
+    result["Тип водоотвода"] = str(df.iloc[row + 1, 0]).strip() if not pd.isna(df.iloc[row + 1, 0]) else ""
+    result["Материал водоотвода"] = str(df.iloc[row + 3, 0]).strip() if not pd.isna(df.iloc[row + 3, 0]) else ""
+    result["Описание дефектов"] = str(df.iloc[row, 1]).strip() if not pd.isna(df.iloc[row, 1]) else ""
+    result["Оц. по пред. обсл."] = str(df.iloc[row, 4]).strip() if not pd.isna(df.iloc[row, 4]) else ""
+    result["% деф. части"] = int(df.iloc[row, 5]) if not pd.isna(df.iloc[row, 5]) and str(df.iloc[row, 5]).isdigit() else 0
+    result["Оценка"] = str(df.iloc[row, 6]).strip() if not pd.isna(df.iloc[row, 6]) else ""
+
+    current_row = row + 1
+    while current_row < len(df):
+        next_key = str(df.iloc[current_row, 0]).strip().lower() if not pd.isna(df.iloc[current_row, 0]) else ""
+        if next_key in ("межпанельные стыки", "фасад", "балконы"):
+            break
+
+        for c in [1, 2]:
+            val = str(df.iloc[current_row, c]) if not pd.isna(df.iloc[current_row, c]) else ""
+            if val:
+                result["Описание дефектов"] += " " + val.strip()
+        
+        current_row += 1
+
+    return result
+
+def parse_styki_section(df, template_styki, row):
+    result = json.loads(json.dumps(template_styki))
+
+    result["Тип стыков"] = str(df.iloc[row + 2, 0]).strip() if not pd.isna(df.iloc[row + 2, 0]) else ""
+    result["Описание дефектов"] = str(df.iloc[row, 1]).strip() if not pd.isna(df.iloc[row, 1]) else ""
+    result["Оц. по пред. обсл."] = str(df.iloc[row, 4]).strip() if not pd.isna(df.iloc[row, 4]) else ""
+    result["% деф. части"] = int(df.iloc[row, 5]) if not pd.isna(df.iloc[row, 5]) and str(df.iloc[row, 5]).isdigit() else 0
+    result["Оценка"] = str(df.iloc[row, 6]).strip() if not pd.isna(df.iloc[row, 6]) else ""
+
+    current_row = row + 1
+    while current_row < len(df):
+        next_key = str(df.iloc[current_row, 0]).strip().lower() if not pd.isna(df.iloc[current_row, 0]) else ""
+        if next_key in ("фасад", "балконы", "стены"):
+            break
+
+        for c in [1, 2]:
+            val = str(df.iloc[current_row, c]) if not pd.isna(df.iloc[current_row, c]) else ""
+            if val:
+                result["Описание дефектов"] += " " + val.strip()
+        
+        current_row += 1
+
+    return result
+
+def parse_fasad_section(df, template_fasad, row):
+    result = json.loads(json.dumps(template_fasad))
+    result["Площадь фасада, м²"] = float(re.search(r"(\d+[.,]?\d*)", str(df.iloc[row + 1, 0])).group(1).replace(",", ".")) if not pd.isna(df.iloc[row + 1, 0]) else 0
+
+    def extract_text(start, end_keys):
+        text = ""
+        current_row = start
+        while current_row < len(df):
+            val = str(df.iloc[current_row, 0]) if not pd.isna(df.iloc[current_row, 0]) else ""
+            if any(key in val.lower() for key in end_keys):
+                break
+            text += " " + val.strip()
+            current_row += 1
+        return text.strip(), current_row
+
+    result["Отделка стен"], next_row = extract_text(row + 3, ["отделка цоколя"])
+    result["Отделка цоколя"], next_row = extract_text(next_row + 1, ["оконные заполне"])
+    result["Оконные заполнения"], next_row = extract_text(next_row + 1, ["балконы", "следующий элемент"])
+    
+    result["Описание дефектов"] = str(df.iloc[row, 1]).strip() if not pd.isna(df.iloc[row, 1]) else ""
+    result["Оц. по пред. обсл."] = str(df.iloc[row, 4]).strip() if not pd.isna(df.iloc[row, 4]) else ""
+    result["% деф. части"] = int(df.iloc[row, 5]) if not pd.isna(df.iloc[row, 5]) and str(df.iloc[row, 5]).isdigit() else 0
+    result["Оценка"] = str(df.iloc[row, 6]).strip() if not pd.isna(df.iloc[row, 6]) else ""
+    
+    return result
+
+def parse_balkony_section(df, template_balkony, row):
+    result = json.loads(json.dumps(template_balkony))
+    log_output = []
+
+    def log(msg):
+        print(msg)
+        log_output.append(msg)
+
+    log(f"➡ Обработка элемента 'Балконы' на строке {row}")
+
+    # Функция для извлечения числа из строки (например, "95 шт." → 95)
+    def extract_number(cell_value):
+        match = re.search(r"(\d+)", str(cell_value))
+        return int(match.group(1)) if match else 0
+
+    # Читаем числовые характеристики из столбца A
+    current_row = row + 1
+    while current_row < len(df):
+        val = str(df.iloc[current_row, 0]) if not pd.isna(df.iloc[current_row, 0]) else ""
+
+        # Если наткнулись на новый элемент (например, "Лестницы"), выходим
+        if val.lower() in ["лестницы", "следующий элемент"]:
+            log(f"✅ Достигнут следующий раздел, завершаем обработку 'Балконы'")
+            break
+
+        # Сопоставляем данные
+        if "шт." in val:
+            prev_val = str(df.iloc[current_row - 1, 0]).strip().lower() if current_row > 0 else ""
+
+            if prev_val == "балконы":
+                result["Количество балконов"] = extract_number(val)
+            elif prev_val == "лоджии:":
+                result["Количество лоджий"] = extract_number(val)
+            elif prev_val == "- над входами:":
+                result["Козырьков над входами"] = extract_number(val)
+            elif prev_val == "- над лоджиями /":
+                next_val = str(df.iloc[current_row + 1, 0]).strip().lower() if current_row + 1 < len(df) else ""
+                if next_val == "балконами верхних":
+                    current_row += 1  # Пропускаем строку "балконами верхних"
+                result["Козырьков на верхних этажах"] = extract_number(val)
+            elif prev_val == "- непроектные:":
+                result["Козырьков непроектных"] = extract_number(val)
+            elif prev_val == "эркеры:":
+                result["Количество эркеров"] = extract_number(val)
+
+        current_row += 1
+
+    # 🔹 Парсим вложенные элементы (дефекты, оценки, проценты)
+    current_nested = None
+    for r in range(row, len(df)):
+        first_col_value = str(df.iloc[r, 0]).strip().lower() if not pd.isna(df.iloc[r, 0]) else ""
+        if first_col_value in ["лестницы", "следующий элемент"]:
+            log(f"✅ Достигнут следующий раздел, завершаем обработку 'Балконы'")
+            break
+
+        for c in [1, 2]:
+            if c >= len(df.columns):
+                continue
+            val = str(df.iloc[r, c]) if not pd.isna(df.iloc[r, c]) else ""
+            if not val:
+                continue
+
+            log(f"[{r}, {chr(65+c)}] '{val}'")
+
+            if ":" in val:
+                key, description = val.split(":", 1)
+                key = key.strip()
+                if key in result:
+                    result[key]["Описание дефектов"] = description.strip()
+                    result[key]["Оц. по пред. обсл."] = str(df.iloc[r, 4]) if not pd.isna(df.iloc[r, 4]) else ""
+                    result[key]["% деф. части"] = int(df.iloc[r, 5]) if not pd.isna(df.iloc[r, 5]) and str(df.iloc[r, 5]).isdigit() else 0
+                    result[key]["Оценка"] = str(df.iloc[r, 6]) if not pd.isna(df.iloc[r, 6]) else ""
+                    log(f"🟩 Вложенный элемент '{key}': {result[key]}")
+                    current_nested = key
+            elif current_nested:
+                result[current_nested]["Описание дефектов"] += " " + val.strip()
+                log(f"➕ Дополнение к описанию '{current_nested}': {val.strip()}")
+
+    log(f"📊 Итоговые характеристики балконов: {result}")
+
+    return result
+
+def parse_steny_section(df, template_steny, start_row):
+    result = json.loads(json.dumps(template_steny))
+    row = start_row
+
+    # 🏗️ Читаем "Материал"
+    material_row = row + 1
+    if "материал" in str(df.iloc[material_row, 0]).lower():
+        material_row += 1
+    result["Материал"] = str(df.iloc[material_row, 0]).strip() if not pd.isna(df.iloc[material_row, 0]) else ""
+
+    # 🏗️ Читаем "Теплофизические свойства"
+    heat_props_row = material_row + 1
+    if "теплофизические" in str(df.iloc[heat_props_row, 0]).lower():
+        heat_props_row += 1
+    if "свойства" in str(df.iloc[heat_props_row, 0]).lower():
+        heat_props_row += 1
+    result["Теплофизические свойства"] = str(df.iloc[heat_props_row, 0]).strip() if not pd.isna(df.iloc[heat_props_row, 0]) else ""
+
+    # 🏗️ Читаем **описание дефектов** (столбцы C-D объединены, много строк)
+    description = []
+    current_row = row
+
+    while current_row < len(df):
+        val_c = str(df.iloc[current_row, 2]).strip() if not pd.isna(df.iloc[current_row, 2]) else ""
+        if val_c:
+            description.append(val_c)  # Добавляем все строки
+        else:
+            break  # Остановить, если достигли пустой строки
+        current_row += 1
+
+    result["Описание дефектов"] = " ".join(description).strip()
+
+    # 🏗️ Читаем **оценки и проценты** (столбцы E, F, G)
+    result["Оц. по пред. обсл."] = str(df.iloc[row, 4]).strip() if not pd.isna(df.iloc[row, 4]) else ""
+
+    # 🔥 ФИКС ПРОЦЕНТА: Проверяем, что значение является числом!
+    percent_def = df.iloc[row, 5]
+    try:
+        result["% деф. части"] = int(float(str(percent_def).replace(',', '.'))) if not pd.isna(percent_def) else 0
+    except ValueError:
+        result["% деф. части"] = 0  # Если не число, оставляем 0
+
+    result["Оценка"] = str(df.iloc[row, 6]).strip() if not pd.isna(df.iloc[row, 6]) else ""
+
+    return result
+
+def parse_podval_section(df, template_podval, start_row):
+    result = json.loads(json.dumps(template_podval))
+    row = start_row
+
+    # 🔹 Записываем "Наличие подвала" (оно всегда есть в строке под названием элемента)
+    result["Наличие подвала"] = str(df.iloc[row + 1, 0]).strip() if not pd.isna(df.iloc[row + 1, 0]) else ""
+
+    # Если в ячейке под названием элемента написано "Отсутствует", то парсинг останавливается
+    if "отсутствует" in result["Наличие подвала"].lower():
+        print(f"⛔ Подвал отсутствует на строке {row + 1}, пропускаем обработку.")
+        return result  # Вернем пустую структуру, но с заполненным "Наличие подвала"
+
+    # 📏 Читаем площадь подвала (если есть)
+    podval_area_row = row + 2
+    area_str = str(df.iloc[podval_area_row, 0]).strip() if not pd.isna(df.iloc[podval_area_row, 0]) else ""
+    match = re.search(r"(\d+)\s?кв.м", area_str)
+    result["Площадь, м²"] = int(match.group(1)) if match else 0
+
+    # 📌 Читаем **описание дефектов** (из объединенных ячеек, как у стен)
+    description = []
+    current_row = row
+    while current_row < len(df):
+        val_c = str(df.iloc[current_row, 2]).strip() if not pd.isna(df.iloc[current_row, 2]) else ""
+        if val_c:
+            description.append(val_c)  # Добавляем строку в описание
+        else:
+            break  # Останавливаемся, если пустая строка
+        current_row += 1
+
+    result["Описание дефектов"] = " ".join(description).strip()
+
+    # 🏗️ Читаем **оценки и проценты**
+    result["Оц. по пред. обсл."] = str(df.iloc[row, 4]).strip() if not pd.isna(df.iloc[row, 4]) else ""
+
+    # 🔥 ФИКС ПРОЦЕНТА
+    percent_def = df.iloc[row, 5]
+    try:
+        result["% деф. части"] = int(float(str(percent_def).replace(',', '.'))) if not pd.isna(percent_def) else 0
+    except ValueError:
+        result["% деф. части"] = 0
+
+    result["Оценка"] = str(df.iloc[row, 6]).strip() if not pd.isna(df.iloc[row, 6]) else ""
+
+    return result
+
+def parse_tech_podpolye_section(df, template_tech_podpolye, row):
+    result = json.loads(json.dumps(template_tech_podpolye))
+    
+    # Записываем наличие тех.подполья
+    result["Наличие тех.подполья"] = str(df.iloc[row + 1, 0]).strip() if not pd.isna(df.iloc[row + 1, 0]) else ""
+    
+    # Если тех.подполье отсутствует или пусто — прекращаем парсинг
+    if not result["Наличие тех.подполья"] or "отсутствует" in result["Наличие тех.подполья"].lower():
+        print(f"⏭ Тех. подполье отсутствует — пропуск")
+        return result
+
+    # Описание дефектов (объединенные ячейки, как в стенах)
+    description = str(df.iloc[row, 2]).strip() if not pd.isna(df.iloc[row, 2]) else ""
+    current_row = row + 1
+    while current_row < len(df):
+        desc_value = str(df.iloc[current_row, 2]).strip() if not pd.isna(df.iloc[current_row, 2]) else ""
+        if desc_value:
+            description += " " + desc_value
+        else:
+            break  # Если строка пустая, прекращаем дополнять
+        current_row += 1
+    result["Описание дефектов"] = description.strip()
+
+    # Оценки и процент дефектов (как в стенах)
+    result["Оц. по пред. обсл."] = str(df.iloc[row, 4]).strip() if not pd.isna(df.iloc[row, 4]) else ""
+    
+    # 🔥 ФИКС ПРОЦЕНТА: Аналогия со стенами
+    percent_def = df.iloc[row, 5]
+    try:
+        result["% деф. части"] = int(float(str(percent_def).replace(',', '.'))) if not pd.isna(percent_def) else 0
+    except ValueError:
+        result["% деф. части"] = 0  # Если не число, оставляем 0
+    
+    result["Оценка"] = str(df.iloc[row, 6]).strip() if not pd.isna(df.iloc[row, 6]) else ""
+
+    return result
+
+def parse_tech_etazh_section(df, template_tech_etazh, row):
+    result = json.loads(json.dumps(template_tech_etazh))
+    
+    # Записываем наличие тех. этажа
+    result["Наличие тех.этажа"] = str(df.iloc[row + 1, 0]).strip() if not pd.isna(df.iloc[row + 1, 0]) else ""
+    
+    # Если тех. этаж отсутствует, прекращаем парсинг
+    if not result["Наличие тех.этажа"] or "отсутствует" in result["Наличие тех.этажа"].lower():
+        print(f"⏭ Тех. этаж отсутствует — пропуск")
+        return result
+
+    # Местонахождение этажа (если оно есть)
+    next_row = row + 2  # "Местонахождение:" находится на строке ниже
+    if next_row < len(df):
+        result["Местонахождение, этаж"] = str(df.iloc[next_row, 0]).strip() if not pd.isna(df.iloc[next_row, 0]) else ""
+
+    # Описание дефектов (из столбца C-D)
+    description = ""
+    current_row = row
+    while current_row < len(df):
+        desc_value = str(df.iloc[current_row, 2]).strip() if not pd.isna(df.iloc[current_row, 2]) else ""
+        if desc_value:
+            description += " " + desc_value
+        else:
+            break  # Если строка пустая, прекращаем дополнять
+        current_row += 1
+    result["Описание дефектов"] = description.strip()
+
+    # Оценки и процент дефектов
+    result["Оц. по пред. обсл."] = str(df.iloc[row, 4]).strip() if not pd.isna(df.iloc[row, 4]) else ""
+    result["% деф. части"] = int(df.iloc[row, 5]) if not pd.isna(df.iloc[row, 5]) and str(df.iloc[row, 5]).isdigit() else 0
+    result["Оценка"] = str(df.iloc[row, 6]).strip() if not pd.isna(df.iloc[row, 6]) else ""
+
+    return result
+
+def parse_garage_section(df, template_garage, row):
+    result = json.loads(json.dumps(template_garage))
+    
+    # 📌 Название элемента многострочное, объединяем
+    garage_type = f"{str(df.iloc[row, 0]).strip()} {str(df.iloc[row + 1, 0]).strip()}".strip()
+    result["Тип"] = str(df.iloc[row + 2, 0]).strip() if not pd.isna(df.iloc[row + 2, 0]) else ""
+    
+    # 🛑 Если гараж-стоянка отсутствует, прекращаем обработку
+    if not result["Тип"] or "отсутствует" in result["Тип"].lower():
+        print(f"⏭ Гараж-стоянка отсутствует — пропуск")
+        return result
+
+    # 📏 Заполняем основные параметры
+    result["Площадь,м²"] = extract_numeric_value(df.iloc[row + 4, 0])  # "Площадь:"
+    result["Этажность, эт"] = extract_numeric_value(df.iloc[row + 6, 0])  # "Этажность:"
+    result["Количество маш.мест, шт"] = extract_numeric_value(df.iloc[row + 8, 0])  # "Количество маш.мест:"
+
+    # 🏗️ Описание дефектов (аналогично другим элементам)
+    description = str(df.iloc[row, 2]).strip() if not pd.isna(df.iloc[row, 2]) else ""
+    current_row = row + 1
+    while current_row < len(df):
+        desc_value = str(df.iloc[current_row, 2]).strip() if not pd.isna(df.iloc[current_row, 2]) else ""
+        if desc_value:
+            description += " " + desc_value
+        else:
+            break  # Если строка пустая, прекращаем дополнять
+        current_row += 1
+    result["Описание дефектов"] = description.strip()
+
+    # 🔥 Парсим оценки и процент (как в стенах)
+    result["Оц. по пред. обсл."] = str(df.iloc[row, 4]).strip() if not pd.isna(df.iloc[row, 4]) else ""
+    
+    percent_def = df.iloc[row, 5]
+    try:
+        result["% деф. части"] = int(float(str(percent_def).replace(',', '.'))) if not pd.isna(percent_def) else 0
+    except ValueError:
+        result["% деф. части"] = 0  
+
+    result["Оценка"] = str(df.iloc[row, 6]).strip() if not pd.isna(df.iloc[row, 6]) else ""
+
+    return result
+
+def extract_numeric_value(cell_value):
+    """Функция извлекает числовое значение из строки, если есть"""
+    try:
+        match = re.search(r"(\d+)", str(cell_value))
+        return int(match.group(1)) if match else 0
+    except (ValueError, AttributeError):
+        return 0
+
+def parse_common_areas_section(df, template_common_areas, row):
+    result = json.loads(json.dumps(template_common_areas))
+    log_output = []
+
+    def log(msg):
+        print(msg)
+        log_output.append(msg)
+
+    log(f"➡ Обработка элемента 'Места общего пользования' на строках {row}, {row+1}")
+
+    # 🔹 Функция для извлечения чисел (например, "95 шт." → 95)
+    def extract_number(cell_value):
+        match = re.search(r"(\d+)", str(cell_value))
+        return int(match.group(1)) if match else 0
+
+    # 🔹 Парсим числовые характеристики (количество пандусов, сходов)
+    result["Пандусы наружные, шт"] = extract_number(df.iloc[row + 1, 0])
+    result["Пандусы внутренние, шт"] = extract_number(df.iloc[row + 3, 0])
+    result["Сходы-съезды, шт."] = extract_number(df.iloc[row + 5, 0])
+
+    # 🔹 Парсим вложенные элементы (дефекты, оценки, проценты)
+    current_nested = None
+    for r in range(row, len(df)):
+        first_col_value = str(df.iloc[r, 0]).strip().lower() if not pd.isna(df.iloc[r, 0]) else ""
+        if first_col_value in ["лестницы", "перекрытия", "следующий элемент"]:
+            log(f"✅ Достигнут следующий раздел, завершаем обработку 'Места общего пользования'")
+            break
+
+        for c in [1, 2]:  # 🔥 Дефекты находятся в объединенных ячейках C-D
+            if c >= len(df.columns):
+                continue
+            val = str(df.iloc[r, c]).strip() if not pd.isna(df.iloc[r, c]) else ""
+            if not val:
+                continue
+
+            log(f"[{r}, {chr(65+c)}] '{val}'")
+
+            if ":" in val:
+                key, description = val.split(":", 1)
+                key = key.strip()
+                if key in result:
+                    result[key]["Описание дефектов"] = description.strip()
+                    result[key]["Оц. по пред. обсл."] = str(df.iloc[r, 4]) if not pd.isna(df.iloc[r, 4]) else ""
+
+                    # 🔥 ФИКС ПРОЦЕНТА
+                    percent_def = df.iloc[r, 5]
+                    try:
+                        result[key]["% деф. части"] = int(float(str(percent_def).replace(',', '.'))) if not pd.isna(percent_def) else 0
+                    except ValueError:
+                        result[key]["% деф. части"] = 0
+
+                    result[key]["Оценка"] = str(df.iloc[r, 6]) if not pd.isna(df.iloc[r, 6]) else ""
+                    log(f"🟩 Вложенный элемент '{key}': {result[key]}")
+                    current_nested = key
+            elif current_nested:
+                result[current_nested]["Описание дефектов"] += " " + val.strip()
+                log(f"➕ Дополнение к описанию '{current_nested}': {val.strip()}")
+
+    log(f"📊 Итоговые данные для 'Мест общего пользования': {result}")
+
+    return result
+
+def parse_stairs_section(df, template_stairs, row):
+    result = json.loads(json.dumps(template_stairs))
+    log_output = []
+
+    def log(msg):
+        print(msg)
+        log_output.append(msg)
+
+    log(f"➡ Обработка элемента 'Лестницы' на строке {row}")
+
+    # 🔹 Конструкция лестниц (ячейка под названием элемента)
+    result["Конструкция"] = str(df.iloc[row + 1, 0]).strip() if not pd.isna(df.iloc[row + 1, 0]) else ""
+
+    # 🔹 Описание дефектов (объединенные ячейки C-D)
+    result["Описание дефектов"] = str(df.iloc[row, 2]).strip() if not pd.isna(df.iloc[row, 2]) else ""
+
+    # 🔹 Оценки и проценты (столбцы E, F, G)
+    result["Оц. по пред. обсл."] = str(df.iloc[row, 4]).strip() if not pd.isna(df.iloc[row, 4]) else ""
+
+    # 🔥 ФИКС ПРОЦЕНТА (учитываем возможные ошибки формата)
+    percent_def = df.iloc[row, 5]
+    try:
+        result["% деф. части"] = int(float(str(percent_def).replace(',', '.'))) if not pd.isna(percent_def) else 0
+    except ValueError:
+        result["% деф. части"] = 0
+
+    result["Оценка"] = str(df.iloc[row, 6]).strip() if not pd.isna(df.iloc[row, 6]) else ""
+
+    # 🔹 Дополняем описание дефектов строками ниже (если есть)
+    current_row = row + 1
+    while current_row < len(df):
+        next_a = str(df.iloc[current_row, 0]).strip() if not pd.isna(df.iloc[current_row, 0]) else ""
+
+        # Если наткнулись на новый элемент (например, "Перекрытия"), завершаем парсинг
+        if next_a:
+            log(f"✅ Достигнут следующий раздел, завершаем обработку 'Лестницы'")
+            break
+
+        # 🔥 Дополняем описание дефектов (столбцы C-D)
+        for c in [2, 3]:
+            val = str(df.iloc[current_row, c]).strip() if not pd.isna(df.iloc[current_row, c]) else ""
+            if val:
+                result["Описание дефектов"] += " " + val
+                log(f"➕ Дополнение к описанию 'Лестницы': {val}")
+
+        current_row += 1
+
+    log(f"📊 Итоговые данные для 'Лестницы': {result}")
+
+    return result
+
+
+# --- МАСТЕР ФУНКЦИЯ ---
+def parse_excel_report(file_path: str, template: dict):
+    xls = pd.ExcelFile(file_path)
+    parsed_reports = []
+    current_report = None  # Текущий заполняемый отчет
+    parsing_started = False  # Флаг начала парсинга
+
+    for sheet_name in xls.sheet_names:
+        df = xls.parse(sheet_name, header=None)
+        print(f"\n===== Обработка листа: {sheet_name} =====")
+
+        if not parsing_started:
+            for i in range(len(df)):
+                val = str(df.iloc[i, 0]).strip().lower() if not pd.isna(df.iloc[i, 0]) else ""
+                if "результаты обследования" in val:
+                    parsing_started = True
+                    print(f"✅ Обнаружен раздел 'Результаты обследования' на странице {sheet_name}, строка {i}")
+                    break
+        
+        if not parsing_started:
+            print("⏭ Пропуск листа, нет раздела 'Результаты обследования'\n")
+            continue
+
+        # Если новый лист, но рег. номер тот же — продолжаем дополнять отчет
+        report_data = current_report if current_report else json.loads(json.dumps(template))
+
+        # Проверяем наличие регистрационного номера
+        for i in range(min(10, len(df))):
+            for j in range(min(5, len(df.columns))):
+                val = str(df.iloc[i, j]) if not pd.isna(df.iloc[i, j]) else ""
+                match = re.search(r"С-\d{2}-\d{7}", val)
+                if match:
+                    reg_number = match.group()
+                    if current_report and current_report["Шапка"]["Регистрационный №"] == reg_number:
+                        print(f"🔄 Продолжаем заполнять отчет для {reg_number}")
+                    else:
+                        print(f"🆕 Создаем новый отчет для {reg_number}")
+                        report_data["Шапка"]["Регистрационный №"] = reg_number
+                        current_report = report_data  # Устанавливаем как текущий отчет
+                    break
+
+        # Ищем начало "Результаты обследования"
+        for row in range(len(df)):
+            val = str(df.iloc[row, 0]).strip().lower() if not pd.isna(df.iloc[row, 0]) else ""
+            if "дополнительные данные" in val:
+                print(f"⛔ Достигнут раздел 'Дополнительные данные' на строке {row}. Сохраняем отчет.")
+                parsed_reports.append(current_report)  # Добавляем полный отчет в список
+                current_report = None  # Сбрасываем текущий отчет
+                parsing_started = False
+                break
+
+            if val == "крыша":
+                print(f"➡ Обработка элемента 'Крыша' на строке {row}")
+                roof_data, _ = parse_roof_section(df, report_data["РЕЗУЛЬТАТЫ ОБСЛЕДОВАНИЯ"]["Крыша"])
+                report_data["РЕЗУЛЬТАТЫ ОБСЛЕДОВАНИЯ"]["Крыша"] = roof_data
+
+            if val == "водоотвод":
+                print(f"➡ Обработка элемента 'Водоотвод' на строке {row}")
+                vod_data = parse_vodootvod_section(df, report_data["РЕЗУЛЬТАТЫ ОБСЛЕДОВАНИЯ"]["Водоотвод"], row)
+                report_data["РЕЗУЛЬТАТЫ ОБСЛЕДОВАНИЯ"]["Водоотвод"] = vod_data
+
+            next_val = str(df.iloc[row+1, 0]).strip().lower() if row + 1 < len(df) and not pd.isna(df.iloc[row+1, 0]) else ""
+            full_val = f"{val} {next_val}".strip()
+            if full_val == "межпанельные стыки":
+                print(f"➡ Обработка элемента 'Межпанельные стыки' на строках {row}, {row+1}")
+                styki_data = parse_styki_section(df, report_data["РЕЗУЛЬТАТЫ ОБСЛЕДОВАНИЯ"]["Межпанельные стыки"], row)
+                report_data["РЕЗУЛЬТАТЫ ОБСЛЕДОВАНИЯ"]["Межпанельные стыки"] = styki_data
+                
+            if val == "фасад":
+                print(f"➡ Обработка элемента 'Фасад' на строке {row}")
+                fasad_data = parse_fasad_section(df, report_data["РЕЗУЛЬТАТЫ ОБСЛЕДОВАНИЯ"]["Фасад"], row)
+                report_data["РЕЗУЛЬТАТЫ ОБСЛЕДОВАНИЯ"]["Фасад"] = fasad_data
+
+            if val == "балконы":
+                print(f"➡ Обработка элемента 'Балконы' на строке {row}")
+                balkony_data = parse_balkony_section(df, report_data["РЕЗУЛЬТАТЫ ОБСЛЕДОВАНИЯ"]["Балконы"], row)
+                report_data["РЕЗУЛЬТАТЫ ОБСЛЕДОВАНИЯ"]["Балконы"] = balkony_data
+            
+            if val == "стены":
+                print(f"➡ Обработка элемента 'Стены' на строке {row}")
+                steny_data = parse_steny_section(df, report_data["РЕЗУЛЬТАТЫ ОБСЛЕДОВАНИЯ"]["Стены"], row)
+                report_data["РЕЗУЛЬТАТЫ ОБСЛЕДОВАНИЯ"]["Стены"] = steny_data
+                
+            if val == "подвал":
+                print(f"➡ Обработка элемента 'Подвал' на строке {row}")
+                podval_data = parse_podval_section(df, report_data["РЕЗУЛЬТАТЫ ОБСЛЕДОВАНИЯ"]["Подвал"], row)
+                report_data["РЕЗУЛЬТАТЫ ОБСЛЕДОВАНИЯ"]["Подвал"] = podval_data
+                
+            if val == "тех. подполье":
+                print(f"➡ Обработка элемента 'Тех. подполье' на строке {row}")
+                tech_podpolye_data = parse_tech_podpolye_section(df, template["РЕЗУЛЬТАТЫ ОБСЛЕДОВАНИЯ"]["Тех. подполье"], row)
+                report_data["РЕЗУЛЬТАТЫ ОБСЛЕДОВАНИЯ"]["Тех. подполье"] = tech_podpolye_data
+                
+            if val == "тех. этаж":
+                print(f"➡ Обработка элемента 'Тех. этаж' на строке {row}")
+                tech_etazh_data = parse_tech_etazh_section(df, template["РЕЗУЛЬТАТЫ ОБСЛЕДОВАНИЯ"]["Тех. этаж"], row)
+                report_data["РЕЗУЛЬТАТЫ ОБСЛЕДОВАНИЯ"]["Тех. этаж"] = tech_etazh_data
+                
+            # Объединяем строки для поиска названия элемента
+            next_val = str(df.iloc[row + 1, 0]).strip().lower() if row + 1 < len(df) and not pd.isna(df.iloc[row + 1, 0]) else ""
+            full_val = f"{val} {next_val}".strip()
+
+            if full_val == "гараж-стоянка (подземный)":
+                print(f"➡ Обработка элемента 'Гараж-стоянка (подземный)' на строках {row}, {row+1}")
+                garage_data = parse_garage_section(df, template["РЕЗУЛЬТАТЫ ОБСЛЕДОВАНИЯ"]["Гараж-стоянка (подземный)"], row)
+                report_data["РЕЗУЛЬТАТЫ ОБСЛЕДОВАНИЯ"]["Гараж-стоянка (подземный)"] = garage_data
+
+            # Объединение строк для поиска "Места общего пользования"
+            next_val = str(df.iloc[row+1, 0]).strip().lower() if row + 1 < len(df) and not pd.isna(df.iloc[row+1, 0]) else ""
+            full_val = f"{val} {next_val}".strip()
+
+            if full_val == "места общего пользования":
+                print(f"➡ Обработка элемента 'Места общего пользования' на строках {row}, {row+1}")
+                common_areas_data = parse_common_areas_section(df, template["РЕЗУЛЬТАТЫ ОБСЛЕДОВАНИЯ"]["Места общего пользования"], row)
+                report_data["РЕЗУЛЬТАТЫ ОБСЛЕДОВАНИЯ"]["Места общего пользования"] = common_areas_data
+                
+            if val == "лестницы":
+                print(f"➡ Обработка элемента 'Лестницы' на строке {row}")
+                lestnicy_data = parse_stairs_section(df, template["РЕЗУЛЬТАТЫ ОБСЛЕДОВАНИЯ"]["Лестницы"], row)
+                report_data["РЕЗУЛЬТАТЫ ОБСЛЕДОВАНИЯ"]["Лестницы"] = lestnicy_data
+
+
+    # Если последний отчет не был сохранен, добавляем его
+    if current_report:
+        parsed_reports.append(current_report)
+
+    return parsed_reports
+
+
+def load_template(template_path: str) -> dict:
+    with open(template_path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def save_output(data: list, path: str):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
+
+def main():
+    if len(sys.argv) < 2:
+        print("⚠ Использование: python parser4.py <путь_к_xlsx>")
+        return
+
+    excel_path = sys.argv[1]
+    template_path = Path(__file__).parent / "template.json"
+    output_path = "output.json"
+
+    print(f"📥 Загружаем шаблон из {template_path}")
+    template = load_template(template_path)
+
+    print(f"📊 Чтение файла Excel: {excel_path}")
+    parsed_reports = parse_excel_report(excel_path, template)
+
+    print(f"💾 Сохраняем в {output_path}")
+    save_output(parsed_reports, output_path)
+
+    print("✅ Готово! Все отчеты сохранены.")
+
+if __name__ == "__main__":
+    main()

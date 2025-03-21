@@ -9,7 +9,7 @@ export class UploadController {
 	constructor(private readonly uploadService: UploadService) {} // Внедряем сервис
 
 	@Post(API_ROUTES.app.uploadPDF)
-	async uploadPdf(@Body() body: { fileName: string; fileData: string; useAI: boolean }) {
+	async uploadPdf(@Body() body: { fileName: string; fileData: string; useAI: boolean, prevSurveyNumber: string }) {
 		if (!body || !body.fileName || !body.fileData) {
 			console.error("❌ Ошибка: данные не получены должным образом.");
 			return { success: false, message: "Неверный формат данных" };
@@ -29,7 +29,7 @@ export class UploadController {
 
 			// Запускаем процесс парсинга
 			console.log(`Парсинг в процессе...`);
-			const parsedData = await this.uploadService.processFile(filePath, body.useAI);
+			const parsedData = await this.uploadService.processFile(filePath, body.useAI, body.prevSurveyNumber);
 			console.log(`Парсинг завершен`);
 
 			// Если AI включен, отправляем данные в DeepSeek для перефразирования
@@ -40,7 +40,7 @@ export class UploadController {
 			}
 
 			// Если AI выключен, возвращаем данные без изменений
-			return { success: true, data: parsedData.data.surveyResults };
+			return { success: true, data: parsedData };
 		} catch (error) {
 			console.error("❌ Ошибка обработки Base64 PDF:", error);
 			return { success: false, error: error.message };
