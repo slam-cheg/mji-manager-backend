@@ -801,6 +801,87 @@ def parse_hot_water_system_section(df, template_section, row_start):
     log(f"📊 Итоговые данные для 'Система ГВС': {result}")
     return result
 
+def parse_cold_water_system_section(df, template_section, row_start):
+    import re
+    import json
+    import pandas as pd
+
+    result = json.loads(json.dumps(template_section))
+    log_output = []
+
+    def log(msg):
+        print(msg)
+        log_output.append(msg)
+
+    def extract_number(cell_value):
+        match = re.search(r"(\d+)", str(cell_value))
+        return int(match.group(1)) if match else 0
+
+    def get_clean_value(r, c):
+        val = df.iloc[r, c]
+        return str(val).strip() if not pd.isna(val) else ""
+
+    log(f"➡ Обработка элемента 'Система ХВС' на строке {row_start}")
+
+    # === Парсинг характеристик ===
+    field_map = [
+        ("Материал трубопроводов", r"трубопровод[а-я]+"),
+        ("Трубопроводы", r"трубопроводы"),
+        ("ОДУУ (общедомовой узел учёта)", r"ОДУУ"),
+        ("Тип стояков", r"тип стояков")
+    ]
+
+    found_fields = set()
+    for r in range(row_start + 1, len(df)):
+        a_val = get_clean_value(r, 0).replace("\n", " ").replace("-", "").lower()
+        if "система водоотведения" in a_val:
+            break
+        for field_name, pattern in field_map:
+            if field_name in found_fields:
+                continue
+            if re.search(pattern, a_val):
+                next_val = get_clean_value(r + 1, 0)
+                if "шт" in next_val:
+                    result[field_name] = extract_number(next_val)
+                else:
+                    result[field_name] = next_val
+                found_fields.add(field_name)
+                log(f"📌 Найдено поле '{field_name}' = '{result[field_name]}'")
+
+    # === Парсинг дефектов и оценок ===
+    current_nested = None
+    for r in range(row_start, len(df)):
+        a_val = get_clean_value(r, 0).lower()
+        if "система водоотведения" in a_val:
+            log("✅ Достигнут следующий раздел 'Система водоотведения'. Завершаем парсинг.")
+            break
+
+        val = get_clean_value(r, 2)
+        if not val:
+            continue
+
+        log(f"[{r}, C] '{val}'")
+
+        if ":" in val:
+            key, description = val.split(":", 1)
+            key = key.strip()
+            if key in result:
+                result[key]["Описание дефектов"] = description.strip()
+                result[key]["Оц. по пред. обсл."] = get_clean_value(r, 4)
+                try:
+                    result[key]["% деф. части"] = int(float(get_clean_value(r, 5).replace(',', '.')))
+                except ValueError:
+                    result[key]["% деф. части"] = 0
+                result[key]["Оценка"] = get_clean_value(r, 6)
+                log(f"🟩 Вложенный элемент '{key}': {result[key]}")
+                current_nested = key
+        elif current_nested:
+            result[current_nested]["Описание дефектов"] += " " + val
+            log(f"➕ Дополнение к описанию '{current_nested}': {val}")
+
+    log(f"📊 Итог по 'Система ХВС': {result}")
+    return result
+
 # --- МАСТЕР ФУНКЦИЯ ---
 def parse_excel_report(file_path: str, template: dict):
     xls = pd.ExcelFile(file_path)
@@ -946,6 +1027,12 @@ def parse_excel_report(file_path: str, template: dict):
                 print(f"➡ Обработка элемента 'Система ГВС' на строке {row}")
                 gvs_data = parse_hot_water_system_section(df, template["РЕЗУЛЬТАТЫ ОБСЛЕДОВАНИЯ"]["Система ГВС"], row)
                 report_data["РЕЗУЛЬТАТЫ ОБСЛЕДОВАНИЯ"]["Система ГВС"] = gvs_data
+
+            if val == "система хвс":
+                print(f"➡ Обработка элемента 'Система ХВС' на строке {row}")
+                khvs_data = parse_cold_water_system_section(df, template["РЕЗУЛЬТАТЫ ОБСЛЕДОВАНИЯ"]["Система ХВС"], row)
+                report_data["РЕЗУЛЬТАТЫ ОБСЛЕДОВАНИЯ"]["Система ХВС"] = khvs_data
+
 
     if current_report:
         parsed_reports.append(current_report)
