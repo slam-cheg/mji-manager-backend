@@ -744,6 +744,63 @@ def parse_heating_system_section(df, template_section, row_start):
     log(f"📊 Итоговые данные для 'Система отопления': {result}")
     return result
 
+def parse_hot_water_system_section(df, template_section, row_start):
+    import json
+    import re
+    import pandas as pd
+
+    result = json.loads(json.dumps(template_section))  # deep copy шаблона
+    log_output = []
+
+    def log(msg):
+        print(msg)
+        log_output.append(msg)
+
+    def extract_number(cell_value):
+        match = re.search(r"(\d+)", str(cell_value))
+        return int(match.group(1)) if match else 0
+
+    log(f"➡ Обработка элемента 'Система ГВС' начиная со строки {row_start}")
+
+    current_nested = None
+    for r in range(row_start, len(df)):
+        first_col_value = str(df.iloc[r, 0]).strip().lower() if not pd.isna(df.iloc[r, 0]) else ""
+        if "система водоотведения" in first_col_value or "система канализации" in first_col_value:
+            log("✅ Достигнут следующий раздел. Завершаем парсинг.")
+            break
+
+        for c in [2]:
+            if c >= len(df.columns):
+                continue
+            val = str(df.iloc[r, c]).strip() if not pd.isna(df.iloc[r, c]) else ""
+            if not val:
+                continue
+
+            log(f"[{r}, {chr(65 + c)}] '{val}'")
+
+            if ":" in val:
+                key, description = val.split(":", 1)
+                key = key.strip()
+                if key in result:
+                    result[key]["Описание дефектов"] = description.strip()
+                    result[key]["Оц. по пред. обсл."] = str(df.iloc[r, 4]).strip() if not pd.isna(df.iloc[r, 4]) else ""
+
+                    percent_def = df.iloc[r, 5]
+                    try:
+                        result[key]["% деф. части"] = int(float(str(percent_def).replace(',', '.'))) if not pd.isna(percent_def) else 0
+                    except ValueError:
+                        result[key]["% деф. части"] = 0
+
+                    result[key]["Оценка"] = str(df.iloc[r, 6]).strip() if not pd.isna(df.iloc[r, 6]) else ""
+                    log(f"🟩 Вложенный элемент '{key}': {result[key]}")
+                    current_nested = key
+            elif current_nested:
+                result[current_nested]["Описание дефектов"] += " " + val.strip()
+                log(f"➕ Дополнение к описанию '{current_nested}': {val.strip()}")
+
+    log(f"📊 Итоговые данные для 'Система ГВС': {result}")
+    return result
+
 # --- МАСТЕР ФУНКЦИЯ ---
 def parse_excel_report(file_path: str, template: dict):
     xls = pd.ExcelFile(file_path)
@@ -885,6 +942,10 @@ def parse_excel_report(file_path: str, template: dict):
                 heating_data = parse_heating_system_section(df, template["РЕЗУЛЬТАТЫ ОБСЛЕДОВАНИЯ"]["Система отопления"], row)
                 report_data["РЕЗУЛЬТАТЫ ОБСЛЕДОВАНИЯ"]["Система отопления"] = heating_data
 
+            if val == "система гвс":
+                print(f"➡ Обработка элемента 'Система ГВС' на строке {row}")
+                gvs_data = parse_hot_water_system_section(df, template["РЕЗУЛЬТАТЫ ОБСЛЕДОВАНИЯ"]["Система ГВС"], row)
+                report_data["РЕЗУЛЬТАТЫ ОБСЛЕДОВАНИЯ"]["Система ГВС"] = gvs_data
 
     if current_report:
         parsed_reports.append(current_report)
