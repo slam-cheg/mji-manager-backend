@@ -882,6 +882,113 @@ def parse_cold_water_system_section(df, template_section, row_start):
     log(f"📊 Итог по 'Система ХВС': {result}")
     return result
 
+def parse_sewage_section(df, template_section, row_start):
+    result = json.loads(json.dumps(template_section))
+    current_key = None
+
+    # Мапинг ключей
+    defect_keys = {
+        "тех.подполье/тех.этаж": "Тех.подполье/тех.этаж",
+        "этажи": "Этажи",
+        "вся система": "Вся система"
+    }
+
+    # Поиск характеристик
+    for i in range(row_start, len(df)):
+        val = str(df.iloc[i, 0]).strip().lower()
+
+        if "материал" in val:
+            result["Материал"] = str(df.iloc[i + 1, 0]).strip()
+        if "тип стояков" in val:
+            result["Тип стояков"] = str(df.iloc[i + 1, 0]).strip()
+
+        if "мусоропровод" in val:
+            break  # закончили канализацию
+
+        # Обработка дефектов
+        if not pd.isna(df.iloc[i, 2]):
+            raw_text = str(df.iloc[i, 2]).strip().lower()
+
+            for pattern, key in defect_keys.items():
+                if raw_text.startswith(pattern):
+                    current_key = key
+                    description = raw_text.split(":", 1)[-1].strip()
+                    result[current_key]["Описание дефектов"] = description
+                    result[current_key]["Оц. по пред. обсл."] = str(df.iloc[i, 5]).strip()
+                    try:
+                        percent_val = df.iloc[i, 7]
+                        result[current_key]["% деф. части"] = int(float(str(percent_val).replace(",", ".")))
+                    except:
+                        result[current_key]["% деф. части"] = 0
+                    result[current_key]["Оценка"] = str(df.iloc[i, 9]).strip()
+                elif current_key:
+                    # Дополнение к предыдущему описанию
+                    result[current_key]["Описание дефектов"] += " " + raw_text
+
+    return result
+
+def parse_garbage_chutes_section(df, template_section, row_start):
+    result = json.loads(json.dumps(template_section))
+    log_output = []
+
+    def log(msg):
+        print(msg)
+        log_output.append(msg)
+
+    def clean_val(val):
+        return str(val).replace("\n", " ").replace("–", "-").strip()
+
+    def extract_number(val):
+        match = re.search(r"\d+", str(val))
+        return int(match.group()) if match else 0
+
+    skip_next_for = None
+    current_row = row_start
+
+    for r in range(row_start, len(df)):
+        val = str(df.iloc[r, 0]).strip().lower() if not pd.isna(df.iloc[r, 0]) else ""
+        val_cleaned = clean_val(val)
+
+        # Стоп, если начинается следующий раздел
+        if "перечень и характеристика элементов" in val_cleaned or "связь с одс" in val_cleaned:
+            log("🛑 Достигнут следующий раздел, завершаем парсинг мусоропроводов.")
+            break
+
+        # 🟡 Парсинг дефекта
+        if not result["Описание дефектов"] and str(df.iloc[r, 2]).strip():
+            result["Описание дефектов"] = str(df.iloc[r, 2]).strip()
+            result["Оц. по пред. обсл."] = str(df.iloc[r, 5]).strip() if not pd.isna(df.iloc[r, 5]) else ""
+            percent_val = df.iloc[r, 6] if 6 < len(df.columns) else ""
+            try:
+                result["% деф. части"] = int(float(str(percent_val).replace(",", "."))) if percent_val else 0
+            except ValueError:
+                result["% деф. части"] = 0
+            result["Оценка"] = str(df.iloc[r, 7]).strip() if 7 < len(df.columns) and not pd.isna(df.iloc[r, 7]) else ""
+            log(f"🟩 Дефект: {result['Описание дефектов']}, %: {result['% деф. части']}, Оценка: {result['Оценка']}")
+
+        # 🟢 Захват характеристик
+        a_val = str(df.iloc[r, 0]).strip().lower() if not pd.isna(df.iloc[r, 0]) else ""
+
+        if "мусоропроводы" in a_val:
+            skip_next_for = "Мусоропроводы"
+            continue
+        elif "мусорокамеры" in a_val:
+            skip_next_for = "Мусорокамеры"
+            continue
+        elif r > row_start and a_val:
+            if skip_next_for == "Мусоропроводы":
+                result["Мусоропроводы"] = a_val
+                log(f"📌 Уточнение мусоропроводов: {a_val}")
+                skip_next_for = None
+            elif skip_next_for == "Мусорокамеры":
+                result["Мусорокамеры"] = a_val
+                log(f"📌 Уточнение мусорокамер: {a_val}")
+                skip_next_for = None
+
+    log(f"📊 Итог по мусоропроводам: {result}")
+    return result
+
+
 # --- МАСТЕР ФУНКЦИЯ ---
 def parse_excel_report(file_path: str, template: dict):
     xls = pd.ExcelFile(file_path)
@@ -1032,7 +1139,16 @@ def parse_excel_report(file_path: str, template: dict):
                 print(f"➡ Обработка элемента 'Система ХВС' на строке {row}")
                 khvs_data = parse_cold_water_system_section(df, template["РЕЗУЛЬТАТЫ ОБСЛЕДОВАНИЯ"]["Система ХВС"], row)
                 report_data["РЕЗУЛЬТАТЫ ОБСЛЕДОВАНИЯ"]["Система ХВС"] = khvs_data
+                
+            if val == "канализация":
+                print(f"➡ Обработка элемента 'Канализация' на строке {row}")
+                kanaliz_data = parse_sewage_section(df, template["РЕЗУЛЬТАТЫ ОБСЛЕДОВАНИЯ"]["Канализация"], row)
+                report_data["РЕЗУЛЬТАТЫ ОБСЛЕДОВАНИЯ"]["Канализация"] = kanaliz_data
 
+            if val == "мусоропроводы":
+                print(f"➡ Обработка элемента 'Мусоропроводы' на строке {row}")
+                garbage_data = parse_garbage_chutes_section(df, template["РЕЗУЛЬТАТЫ ОБСЛЕДОВАНИЯ"]["Мусоропроводы"], row)
+                report_data["РЕЗУЛЬТАТЫ ОБСЛЕДОВАНИЯ"]["Мусоропроводы"] = garbage_data
 
     if current_report:
         parsed_reports.append(current_report)
