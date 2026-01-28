@@ -6,6 +6,7 @@ import { AppDataService } from './appData.service';
 import { AppConfigModule } from '../config/config.module';
 import { UploadController } from './upload.controller';
 import { UploadService } from './upload.service';
+import { DeepSeekParserService } from './deepseek-parser.service';
 import { HttpModule } from '@nestjs/axios';
 
 @Module({
@@ -15,7 +16,7 @@ import { HttpModule } from '@nestjs/axios';
     HttpModule  // Ensure this module is included for FunctionsService
   ],
   controllers: [AppDataController, UploadController],
-  providers: [AppDataService, UploadService],
+  providers: [AppDataService, UploadService, DeepSeekParserService],
   exports: [AppDataService],
 })
 export class AppDataModule {}

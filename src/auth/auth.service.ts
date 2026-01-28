@@ -78,7 +78,7 @@ export class AuthService {
 			}
 
 			// 🔥 Генерируем новый accessToken
-			const newAccessToken = this.jwtService.sign({ login: user.login, fio: user.fio, isAdmin: user.isAdmin }, { expiresIn: "14d" });
+			const newAccessToken = this.jwtService.sign({ login: user.login, fio: user.fio, isAdmin: user.isAdmin }, { expiresIn: "1h" });
 
 			return { accessToken: newAccessToken };
 		} catch (error) {

@@ -9,6 +9,7 @@ import { ConfigService } from 'src/config/config.service';
 import { ChangeProfileDTO } from './dto/change-profile.dto';
 import { DeactivateAccountDTO } from './dto/deactivate-account.dto';
 import { UserDataDTO } from './dto/user-data.dto';
+import { UpdateFioDTO } from './dto/update-fio.dto';
 
 @Controller('api')
 export class UserController {
@@ -108,5 +109,36 @@ export class UserController {
   @Post(API_ROUTES.users.getUserData)
   async getUserData(@Body() body: UserDataDTO) {
     return this.userService.getUserData(body);
+  }
+
+  @Post(API_ROUTES.users.updateFio)
+  async updateFio(@Body() body: UpdateFioDTO) {
+    console.log(`Начат процесс изменения ФИО у аккаунта ${body.data.login} . . .`);
+
+    try {
+      const updateSuccess = await this.userService.updateUserField(body.data.login, 'fio', body.data.fio);
+
+      const response = {
+        status: updateSuccess
+          ? `ФИО аккаунта ${body.data.login} успешно изменено.`
+          : `ФИО аккаунта ${body.data.login} не изменено. Ошибка.`,
+        boolean: updateSuccess,
+        fio: body.data.fio,
+        timeStamp: timeStamp(),
+      };
+
+      writeLog(response, 'changeFio');
+      return response;
+    } catch (error) {
+      const response = {
+        status: error.message || `ФИО аккаунта ${body.data.login} не изменено. Ошибка.`,
+        boolean: false,
+        fio: body.data.fio,
+        timeStamp: timeStamp(),
+      };
+
+      writeLog(response, 'changeFio');
+      return response;
+    }
   }
 }

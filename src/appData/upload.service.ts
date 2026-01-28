@@ -3,19 +3,36 @@ import { HttpService } from "@nestjs/axios";
 import * as path from "path";
 import * as fs from "fs";
 import { execFile } from "child_process";
-import { v4 as uuidv4 } from "uuid";
+import { DeepSeekParserService } from "./deepseek-parser.service";
 
 @Injectable()
 export class UploadService {
-	constructor(private readonly httpService: HttpService) {}
+	constructor(
+		private readonly httpService: HttpService,
+		private readonly deepSeekParser: DeepSeekParserService
+	) {}
 
 	// === Основной метод обработки (вызывается с фронта) ===
-	async processFile(filePath: string, useAI: boolean, prevSurveyNumber: string): Promise<any> {
+	async processFile(
+		filePath: string,
+		useAI: boolean,
+		prevSurveyNumber: string,
+		useDeepSeek: boolean = false
+	): Promise<any> {
 		try {
 			console.log(`✅ Файл успешно сохранен: ${filePath}`);
 
-			// 2. Запускаем Python парсер
-			const reports = await this.runPythonParser(filePath);
+			let reports: any[];
+
+			// Выбираем метод парсинга
+			if (useDeepSeek) {
+				console.log(`🧠 Используем DeepSeek парсер...`);
+				reports = await this.deepSeekParser.parsePdfWithDeepSeek(filePath);
+			} else {
+				console.log(`🐍 Используем Python парсер...`);
+				reports = await this.runPythonParser(filePath);
+			}
+
 			console.log(`✅ Парсинг завершен. Найдено отчетов: ${reports.length}`);
 
 			// 3. Если нужен AI — прогоняем через modifyDataWithAI
@@ -40,19 +57,6 @@ export class UploadService {
 		// Тут можешь вставить интеграцию с AI
 		console.log("🧠 AI обработка (заглушка)...");
 		return data;
-	}
-
-	// === Сохраняем base64 во временный PDF файл ===
-	private async saveBase64ToFile(base64Data: string): Promise<string> {
-		const buffer = Buffer.from(base64Data, "base64");
-		const tempFileName = `${uuidv4()}.pdf`; // Уникальное имя файла
-		const filePath = path.join(process.cwd(), "uploads", tempFileName); // Правильный путь
-
-		await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
-		await fs.promises.writeFile(filePath, buffer);
-
-		console.log(`📥 Декодируем base64 в PDF для файла: ${tempFileName}`);
-		return filePath;
 	}
 
 	// === Запускаем Python-парсер на файле PDF ===

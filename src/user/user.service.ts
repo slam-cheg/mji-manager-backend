@@ -8,6 +8,7 @@ import { UserDataDTO } from './dto/user-data.dto';
 import { timeStamp } from 'src/utils/timeStamp';
 import { writeLog } from 'src/utils/writeLog';
 import { API_ROUTES } from 'src/config/api.config';
+import * as bcrypt from 'bcrypt';
 
 @Injectable()
 export class UserService {
@@ -59,10 +60,16 @@ export class UserService {
       throw new Error(`Изменение поля '${field}' запрещено.`);
     }
 
+    // Если обновляется пароль, нужно его захешировать
+    let finalValue = value;
+    if (field === 'password') {
+      finalValue = await bcrypt.hash(value, 10);
+    }
+
     const result = await this.userRepository
       .createQueryBuilder()
       .update(User)
-      .set({ [field]: value })
+      .set({ [field]: finalValue })
       .where('login = :login', { login })
       .execute();
 
