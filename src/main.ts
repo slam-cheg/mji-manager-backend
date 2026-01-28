@@ -21,5 +21,5 @@ async function bootstrap() {
 }
 
 bootstrap().catch((err) => {
-	console.error("Error during bootstrap:", err);
+  console.error("Error during bootstrap:", err);
 });
