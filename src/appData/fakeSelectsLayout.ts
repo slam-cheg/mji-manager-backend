@@ -28,4 +28,4 @@ export const fakeSelectsLayout = `
         <div class="fakeSelect__list"></div>
     </div>
 </div>
-`
+`;

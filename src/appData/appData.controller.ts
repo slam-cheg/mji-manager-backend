@@ -1,12 +1,12 @@
-import { Controller, Post, Body, Patch } from '@nestjs/common';
-import { AppDataService } from './appData.service';
-import { writeLog } from '../utils/writeLog';
-import { UpdateDefectsDTO } from './dto/update-defects.dto';
-import { API_ROUTES } from 'src/config/api.config';
+import { Controller, Post, Body, Patch } from "@nestjs/common";
+import { AppDataService } from "./appData.service";
+import { writeLog } from "../utils/writeLog";
+import { UpdateDefectsDTO } from "./dto/update-defects.dto";
+import { API_ROUTES } from "src/config/api.config";
 
-@Controller('api')
+@Controller("api")
 export class AppDataController {
-    constructor(private readonly appDataService: AppDataService) {}
+  constructor(private readonly appDataService: AppDataService) {}
 
   @Post(API_ROUTES.app.getAppData)
   async getAppData(@Body() body: any) {
@@ -15,7 +15,7 @@ export class AppDataController {
     }
 
     const response = await this.appDataService.getAppData();
-    writeLog(response, 'getAppData');
+    writeLog(response, "getAppData");
     return response;
   }
 
@@ -26,7 +26,7 @@ export class AppDataController {
     }
 
     const response = this.appDataService.getAppLayout();
-    writeLog(response, 'getApp');
+    writeLog(response, "getApp");
     return response;
   }
 

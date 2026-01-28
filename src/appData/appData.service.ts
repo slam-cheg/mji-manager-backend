@@ -1,20 +1,20 @@
-import { Injectable } from '@nestjs/common';
-import { Repository } from 'typeorm';
-import { AppData } from './appData.entity';
-import { InjectRepository } from '@nestjs/typeorm';
-import { mjiPopupLayout } from './mjipopuplayout';
-import { fakeSelectsLayout } from './fakeSelectsLayout';
-import { mjiPopupStyles } from './mjiPopupStyles';
-import { writeLog } from 'src/utils/writeLog';
-import { UpdateDefectsDTO } from './dto/update-defects.dto';
-import { ConfigService } from 'src/config/config.service';
+import { Injectable } from "@nestjs/common";
+import { Repository } from "typeorm";
+import { AppData } from "./appData.entity";
+import { InjectRepository } from "@nestjs/typeorm";
+import { mjiPopupLayout } from "./mjipopuplayout";
+import { fakeSelectsLayout } from "./fakeSelectsLayout";
+import { mjiPopupStyles } from "./mjiPopupStyles";
+import { writeLog } from "src/utils/writeLog";
+import { UpdateDefectsDTO } from "./dto/update-defects.dto";
+import { ConfigService } from "src/config/config.service";
 
 @Injectable()
 export class AppDataService {
   constructor(
     private readonly ConfigService: ConfigService,
     @InjectRepository(AppData)
-    private readonly appDataRepository: Repository<AppData>,  // Получаем данные из БД
+    private readonly appDataRepository: Repository<AppData>, // Получаем данные из БД
   ) {}
 
   // Метод для получения данных приложения, включая функции
@@ -22,7 +22,7 @@ export class AppDataService {
     const appData = await this.appDataRepository.findOne({ where: { id: 1 } });
 
     if (!appData) {
-      throw new Error('Данные приложения не найдены.');
+      throw new Error("Данные приложения не найдены.");
     }
 
     // Получаем список функций через FunctionsService
@@ -37,11 +37,11 @@ export class AppDataService {
 
     // Статус данных
     const dataStatus = {
-      defectsData: appData.defectsData ? 'OK' : 'No data',
-      ratesData: appData.ratesData ? 'OK' : 'No data',
-      representativesData: appData.representativesData ? 'OK' : 'No data',
-      appLayout: appLayout ? 'OK' : 'No data',
-      functions: functions ? 'OK' : 'No data',
+      defectsData: appData.defectsData ? "OK" : "No data",
+      ratesData: appData.ratesData ? "OK" : "No data",
+      representativesData: appData.representativesData ? "OK" : "No data",
+      appLayout: appLayout ? "OK" : "No data",
+      functions: functions ? "OK" : "No data",
     };
 
     return {
@@ -59,15 +59,15 @@ export class AppDataService {
     const appData = await this.appDataRepository.findOne({ where: { id: 1 } });
 
     if (!appData) {
-      throw new Error('Данные приложения не найдены.');
+      throw new Error("Данные приложения не найдены.");
     }
 
     const functions = await this.ConfigService.getFunctionsList();
 
     return {
-      status: 'Верстка приложения отдана.',
+      status: "Верстка приложения отдана.",
       boolean: true,
-      layout: mjiPopupLayout(functions),  // Используем функции, полученные из БД
+      layout: mjiPopupLayout(functions), // Используем функции, полученные из БД
       timeStamp: new Date().toISOString(),
     };
   }
@@ -76,23 +76,25 @@ export class AppDataService {
   async updateDefects(dto: UpdateDefectsDTO): Promise<{ Success: boolean }> {
     const { login, defects } = dto;
 
-    const existingAppData = await this.appDataRepository.findOne({ where: { id: 1 } });
+    const existingAppData = await this.appDataRepository.findOne({
+      where: { id: 1 },
+    });
 
     if (!existingAppData) {
-      throw new Error('Данные приложения не найдены.');
+      throw new Error("Данные приложения не найдены.");
     }
 
     existingAppData.defectsData = defects;
     await this.appDataRepository.save(existingAppData);
 
     const logInfo = {
-      status: 'Список дефектов успешно изменен.',
+      status: "Список дефектов успешно изменен.",
       boolean: true,
       login,
       timeStamp: new Date().toISOString(),
     };
 
-    writeLog(logInfo, 'ChangeDefects');
+    writeLog(logInfo, "ChangeDefects");
 
     return { Success: true };
   }

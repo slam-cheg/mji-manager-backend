@@ -7,4 +7,3 @@ export interface IUserResponse {
   isAdmin: boolean;
   refreshToken: string;
 }
-  

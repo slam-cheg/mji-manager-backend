@@ -1,8 +1,8 @@
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from "fs";
+import * as path from "path";
 
 export function writeLog(data: any, type: string) {
-  const logsDir = path.join(__dirname, '../../logs');
+  const logsDir = path.join(__dirname, "../../logs");
   const logFile = path.join(logsDir, `${type}.log`);
   const logMessage = `[${new Date().toISOString()}] ${JSON.stringify(data)}\n`;
 

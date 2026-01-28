@@ -1,11 +1,11 @@
-import { Controller, Get, Post, Body, Res } from '@nestjs/common';
-import { timeStamp } from '../utils/timeStamp';
-import { API_ROUTES } from 'src/config/api.config';
-import { Response } from 'express';
-import * as path from 'path';
-import * as fs from 'fs';
+import { Controller, Get, Post, Body, Res } from "@nestjs/common";
+import { timeStamp } from "../utils/timeStamp";
+import { API_ROUTES } from "src/config/api.config";
+import { Response } from "express";
+import * as path from "path";
+import * as fs from "fs";
 
-@Controller('api')
+@Controller("api")
 export class SystemController {
   @Get(API_ROUTES.system.checkResponse)
   async checkResponse() {
@@ -18,10 +18,10 @@ export class SystemController {
     try {
       // Ищем файл appBuild.js в возможных местах
       const possiblePaths = [
-        path.join(process.cwd(), 'public', 'appBuild.js'),
-        path.join(process.cwd(), 'server', 'appdata', 'appBuild.js'),
-        path.join(__dirname, '../../public/appBuild.js'),
-        path.join(__dirname, '../../server/appdata/appBuild.js'),
+        path.join(process.cwd(), "public", "appBuild.js"),
+        path.join(process.cwd(), "server", "appdata", "appBuild.js"),
+        path.join(__dirname, "../../public/appBuild.js"),
+        path.join(__dirname, "../../server/appdata/appBuild.js"),
       ];
 
       let filePath: string | null = null;
@@ -33,13 +33,13 @@ export class SystemController {
       }
 
       if (!filePath) {
-        return res.status(404).json({ error: 'appBuild.js not found' });
+        return res.status(404).json({ error: "appBuild.js not found" });
       }
 
       return res.sendFile(filePath);
     } catch (error) {
-      console.error('Error serving appBuild.js:', error);
-      return res.status(500).json({ error: 'Internal server error' });
+      console.error("Error serving appBuild.js:", error);
+      return res.status(500).json({ error: "Internal server error" });
     }
   }
 }
