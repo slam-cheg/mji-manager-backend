@@ -6,9 +6,9 @@
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
-    "start": "node dist/main",
-    "dev": "nest start --watch",
-    "install-python-deps": "pip install -r src/utils/requirements.txt"
+    "build": "nest build",
+    "start": "node dist/src/main",
+    "dev": "nest start --watch"
   },
   "dependencies": {
     "@nestjs/axios": "^4.0.0",
@@ -29,6 +29,7 @@
     "nodemailer": "^6.10.0",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
+    "pdf-lib": "^1.17.1",
     "pdf2json": "^3.1.5",
     "pg": "^8.13.2",
     "reflect-metadata": "^0.2.2",

@@ -1,4 +1,5 @@
-import { Controller, Post, Body } from "@nestjs/common";
+import { Controller, Post, Body, Res } from "@nestjs/common";
+import { Response } from "express";
 import * as fs from "fs";
 import * as path from "path";
 import { UploadService } from "./upload.service"; // Импортируем UploadService
@@ -15,25 +16,25 @@ export class UploadController {
       fileName: string;
       fileData: string;
       useAI: boolean;
-      prevSurveyNumber: string;
-      useDeepSeek?: boolean; // Новый параметр для выбора DeepSeek парсера
+      useDeepSeek?: boolean;
+      address?: string; // адрес дома — парсим только страницы с этим адресом
+      registrationNumber?: string; // регистрационный № отчёта (напр. С-23-0003239) — парсим только листы этого отчёта
     },
+    @Res() res: Response,
   ) {
     if (!body || !body.fileName || !body.fileData) {
       console.error("❌ Ошибка: данные не получены должным образом.");
-      return { success: false, message: "Неверный формат данных" };
+      res.status(400).json({ success: false, message: "Неверный формат данных" });
+      return;
     }
 
     try {
       console.log(`📥 Декодируем base64 в PDF для файла: ${body.fileName}`);
 
-      // Убираем data:application/pdf;base64,
       const base64Data = body.fileData.split(",")[1];
       const buffer = Buffer.from(base64Data, "base64");
 
-      // Сохраняем файл на сервере
       const uploadsDir = path.join(process.cwd(), "uploads");
-      // Создаем директорию, если её нет
       if (!fs.existsSync(uploadsDir)) {
         fs.mkdirSync(uploadsDir, { recursive: true });
       }
@@ -41,33 +42,46 @@ export class UploadController {
       fs.writeFileSync(filePath, buffer);
       console.log(`✅ Файл успешно сохранен: ${filePath}`);
 
-      // Запускаем процесс парсинга
-      console.log(
-        `Парсинг в процессе... (useDeepSeek: ${body.useDeepSeek || false})`,
-      );
       const parsedData = await this.uploadService.processFile(
         filePath,
-        body.useAI,
-        body.prevSurveyNumber,
-        body.useDeepSeek || false,
+        body.useAI ?? false,
+        "",
+        body.useDeepSeek ?? true,
+        body.address || "",
+        body.registrationNumber || "",
       );
       console.log(`Парсинг завершен`);
 
-      // Если AI включен, отправляем данные в DeepSeek для перефразирования
-      if (body.useAI) {
-        console.log(
-          "🧠 AI модификация включена. Отправляем данные в DeepSeek...",
-        );
-        const modifiedData =
-          await this.uploadService.modifyDataWithAI(parsedData);
-        return { success: true, data: modifiedData };
-      }
-
-      // Если AI выключен, возвращаем данные без изменений
-      return { success: true, data: parsedData };
+      const payload = { success: true, data: parsedData };
+      const bodySize = JSON.stringify(parsedData).length;
+      console.log(`📤 Отправляем ответ клиенту, размер data: ${bodySize} символов`);
+      res.status(200).json(payload);
     } catch (error) {
       console.error("❌ Ошибка обработки Base64 PDF:", error);
-      return { success: false, error: error.message };
+      res.status(500).json({ success: false, error: (error as Error).message });
+    }
+  }
+
+  /**
+   * Перефразирование блока "Результаты выборочного обследования" через DeepSeek.
+   * Используется при «Вставить» в расширении с включённым AI.
+   */
+  @Post(API_ROUTES.app.rephraseDefectsBlock)
+  async rephraseDefectsBlock(
+    @Body()
+    body: { results: Record<string, any> },
+  ) {
+    if (!body?.results || typeof body.results !== "object") {
+      return { success: false, message: "Неверный формат: ожидается { results }" };
+    }
+    try {
+      const rephrased = await this.uploadService.rephraseDefectsBlock(
+        body.results,
+      );
+      return { success: true, data: rephrased };
+    } catch (error) {
+      console.error("❌ Ошибка перефразирования блока дефектов:", error);
+      return { success: false, error: (error as Error).message };
     }
   }
 }

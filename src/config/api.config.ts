@@ -11,6 +11,7 @@ export const API_ROUTES = {
     getAppData: "/get-app-data",
     updateDefects: "/save-defects",
     uploadPDF: "/upload-pdf",
+    rephraseDefectsBlock: "/rephrase-defects-block",
   },
   users: {
     getUserData: "/userdata",

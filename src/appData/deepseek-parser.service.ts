@@ -3,6 +3,14 @@ import { HttpService } from "@nestjs/axios";
 import { firstValueFrom } from "rxjs";
 import * as fs from "fs";
 import * as path from "path";
+import {
+  getPdfPageCount as getPdfPageCountUtil,
+  detectPdfEngine as detectPdfEngineUtil,
+  findPageRangeByAddress as findPageRangeByAddressUtil,
+  findPageRangeBySearchTerm as findPageRangeBySearchTermUtil,
+  findPageRangeForResultsSection as findPageRangeForResultsSectionUtil,
+  extractPdfPages as extractPdfPagesUtil,
+} from "./pdf-utils";
 
 /**
  * Сервис для парсинга PDF через DeepSeek API с разбивкой на части
@@ -43,122 +51,159 @@ export class DeepSeekParserService {
   }
 
   /**
-   * Автоматически определяет тип PDF и выбирает подходящий движок
-   * Согласно документации RouterAI:
-   * - pdf-text: для текстовых PDF (бесплатно)
-   * - mistral-ocr: для отсканированных документов (платно)
-   * - native: для моделей с нативной поддержкой (оплачивается как входные токены)
-   *
-   * @param filePath - путь к PDF файлу
-   * @returns название движка: "pdf-text" для текстовых PDF, "mistral-ocr" для отсканированных
+   * Определяет тип PDF по количеству извлечённого текста (TypeScript, pdf-utils).
    */
   private async detectPdfEngine(filePath: string): Promise<string> {
     try {
-      // Пытаемся извлечь текст из первых страниц для определения типа
-      const { execFile } = await import("child_process");
-      const { promisify } = await import("util");
-      const execFileAsync = promisify(execFile);
-
-      const pythonScript = `
-import sys
-try:
-    import pdfplumber
-    with pdfplumber.open("${filePath.replace(/\\/g, "/")}") as pdf:
-        # Извлекаем текст с первых 3 страниц
-        text = ""
-        for i, page in enumerate(pdf.pages[:3]):
-            page_text = page.extract_text()
-            if page_text:
-                text += page_text
-        
-        # Если извлечено достаточно текста (более 500 символов) - это текстовый PDF
-        # Используем pdf-text (бесплатно) для текстовых PDF
-        if len(text) > 500:
-            print("pdf-text")
-        else:
-            # Мало текста - вероятно отсканированный документ
-            print("mistral-ocr")
-except:
-    try:
-        from PyPDF2 import PdfReader
-        reader = PdfReader("${filePath.replace(/\\/g, "/")}")
-        text = ""
-        for i, page in enumerate(reader.pages[:3]):
-            page_text = page.extract_text()
-            if page_text:
-                text += page_text
-        
-        if len(text) > 500:
-            print("pdf-text")
-        else:
-            print("mistral-ocr")
-    except Exception as e:
-        # По умолчанию используем pdf-text (бесплатно и быстрее)
-        print("pdf-text")
-`;
-
-      const tempScriptPath = path.join(process.cwd(), "temp_detect_pdf.py");
-      fs.writeFileSync(tempScriptPath, pythonScript);
-
-      const { stdout } = await execFileAsync("python", [tempScriptPath]);
-      fs.unlinkSync(tempScriptPath);
-
-      const engine = stdout.trim();
-      // Поддерживаем только pdf-text и mistral-ocr
-      // native используется автоматически RouterAI для моделей с нативной поддержкой
-      return engine === "mistral-ocr" ? "mistral-ocr" : "pdf-text";
+      return await detectPdfEngineUtil(filePath);
     } catch (error) {
       console.warn(
-        `⚠️ Не удалось определить тип PDF, используем pdf-text по умолчанию: ${error.message}`,
+        `⚠️ Не удалось определить тип PDF, используем pdf-text по умолчанию: ${(error as Error).message}`,
       );
-      // По умолчанию используем pdf-text (бесплатно и быстрее согласно документации)
       return "pdf-text";
     }
   }
 
   /**
-   * Получает количество страниц в PDF файле
+   * Получает количество страниц в PDF (TypeScript, pdf-utils).
    */
   private async getPdfPageCount(filePath: string): Promise<number> {
-    try {
-      // Используем Python для определения количества страниц
-      const { execFile } = await import("child_process");
-      const { promisify } = await import("util");
-      const execFileAsync = promisify(execFile);
+    const pageCount = await getPdfPageCountUtil(filePath);
+    if (isNaN(pageCount) || pageCount <= 0) {
+      throw new Error("Не удалось определить количество страниц");
+    }
+    return pageCount;
+  }
 
-      const pythonScript = `
-import sys
-try:
-    import pdfplumber
-    with pdfplumber.open("${filePath.replace(/\\/g, "/")}") as pdf:
-        print(len(pdf.pages))
-except:
-    try:
-        from PyPDF2 import PdfReader
-        reader = PdfReader("${filePath.replace(/\\/g, "/")}")
-        print(len(reader.pages))
-    except Exception as e:
-        print(f"ERROR: {e}", file=sys.stderr)
-        sys.exit(1)
-`;
+  /**
+   * Находит диапазон страниц (start, end) в PDF по адресу (TypeScript, pdf-utils).
+   */
+  async findPageRangeByAddress(
+    filePath: string,
+    address: string,
+  ): Promise<{ start: number; end: number }> {
+    const result = await findPageRangeByAddressUtil(filePath, address);
+    return {
+      start: Math.max(1, result.start || 1),
+      end: Math.max(1, result.end || 10),
+    };
+  }
 
-      const tempScriptPath = path.join(process.cwd(), "temp_count_pages.py");
-      fs.writeFileSync(tempScriptPath, pythonScript);
+  /**
+   * Находит диапазон страниц по произвольной строке (регистрационный №, адрес и т.д.).
+   */
+  async findPageRangeBySearchTerm(
+    filePath: string,
+    searchTerm: string,
+  ): Promise<{ start: number; end: number }> {
+    const result = await findPageRangeBySearchTermUtil(filePath, searchTerm);
+    return {
+      start: Math.max(1, result.start || 1),
+      end: Math.max(1, result.end || 10),
+    };
+  }
 
-      const { stdout } = await execFileAsync("python", [tempScriptPath]);
-      fs.unlinkSync(tempScriptPath);
+  /**
+   * Для парсинга по регистрационному №: только 5 страниц начиная с "РЕЗУЛЬТАТЫ ОБСЛЕДОВАНИЯ".
+   */
+  async findPageRangeForResultsSection(
+    filePath: string,
+    searchTerm: string,
+  ): Promise<{ start: number; end: number }> {
+    const result = await findPageRangeForResultsSectionUtil(filePath, searchTerm);
+    return {
+      start: Math.max(1, result.start || 1),
+      end: Math.max(1, result.end || 5),
+    };
+  }
 
-      const pageCount = parseInt(stdout.trim(), 10);
-      if (isNaN(pageCount) || pageCount <= 0) {
-        throw new Error("Не удалось определить количество страниц");
-      }
-
-      return pageCount;
-    } catch (error) {
-      console.error("❌ Ошибка при определении количества страниц:", error);
+  /**
+   * Парсит только чанк PDF по строке поиска (регистрационный № или адрес) — только релевантные страницы.
+   * Возвращает массив из одного отчёта.
+   */
+  async parsePdfChunkBySearchTerm(
+    filePath: string,
+    searchTerm: string,
+    label: string = "поиск",
+  ): Promise<any[]> {
+    if (!this.API_KEY) {
       throw new Error(
-        `Не удалось определить количество страниц: ${error.message}`,
+        "API ключ не задан. Установите ROUTERAI_API_KEY или OPENROUTER_API_KEY.",
       );
+    }
+    const isRegNumber =
+      (label && String(label).trim().toLowerCase().includes("регистрационный")) === true;
+    const range = isRegNumber
+      ? await this.findPageRangeForResultsSection(filePath, searchTerm)
+      : await this.findPageRangeBySearchTerm(filePath, searchTerm);
+    console.log(
+      `📄 Парсинг только страниц ${range.start}-${range.end}${isRegNumber ? " (блок РЕЗУЛЬТАТЫ ОБСЛЕДОВАНИЯ)" : ""} (${label}: "${searchTerm.slice(0, 40)}${searchTerm.length > 40 ? "…" : ""}")`,
+    );
+    const template = this.loadTemplate();
+    const pdfEngine = await this.detectPdfEngine(filePath);
+    const chunk = { start: range.start, end: range.end };
+    const result = await this.parseChunkWithDeepSeek(
+      filePath,
+      chunk,
+      template,
+      true,
+      true,
+      pdfEngine,
+    );
+    return Array.isArray(result) ? result : [result];
+  }
+
+  /**
+   * Парсит только чанк PDF по адресу (10 страниц, где встречается адрес).
+   * Возвращает массив из одного отчёта.
+   */
+  async parsePdfChunkByAddress(filePath: string, address: string): Promise<any[]> {
+    return this.parsePdfChunkBySearchTerm(filePath, address, "адрес");
+  }
+
+  /**
+   * Перефразирует одну фразу описания дефекта через DeepSeek:
+   * инженерный язык, не длиннее 2 предложений.
+   * Слово «Отсутствует» / «Отсутвует» — возвращается пустая строка (элемента нет в конструкции).
+   */
+  async rephraseDefectText(text: string): Promise<string> {
+    if (!this.API_KEY || !text || !String(text).trim()) {
+      return String(text || "").trim();
+    }
+    const trimmed = String(text).trim();
+    if (trimmed === "Отсутствует" || trimmed === "Отсутвует" || /^(Отсутствует|Отсутвует)[\s.,;:]*$/i.test(trimmed)) {
+      return "";
+    }
+    try {
+      const response = await firstValueFrom(
+        this.httpService.post(
+          `${this.API_BASE_URL}/chat/completions`,
+          {
+            model: this.DEEPSEEK_MODEL,
+            messages: [
+              {
+                role: "user",
+                content: `Перефразируй следующее описание дефекта в отчёте по обследованию здания. Требования: только инженерный язык, не длиннее двух предложений. Верни только перефразированный текст, без кавычек и пояснений.
+Важно: если в тексте написано только «Отсутствует» (или «Отсутвует») — верни пустую строку: это означает, что данного элемента нет в конструкции.\n\nТекст: ${trimmed}`,
+              },
+            ],
+            temperature: 0.2,
+            max_tokens: 300,
+          },
+          {
+            headers: {
+              Authorization: `Bearer ${this.API_KEY}`,
+              "Content-Type": "application/json",
+            },
+            timeout: 30000,
+          },
+        ),
+      );
+      const content = response.data?.choices?.[0]?.message?.content?.trim();
+      return content && content.length > 0 ? content : trimmed;
+    } catch (error) {
+      console.warn(`⚠️ Не удалось перефразировать фразу: ${error?.message}`);
+      return trimmed;
     }
   }
 
@@ -196,18 +241,46 @@ except:
    * Создает системный промпт для извлечения данных по template.json
    */
   private createSystemPrompt(template: any): string {
-    // Всегда используем упрощенный промпт, чтобы избежать проблем с большими шаблонами
-    // Template.json слишком большой и может вызывать ошибки при сериализации JSON payload
     return `Ты эксперт по извлечению структурированных данных из технических отчетов обследования зданий.
 
 Твоя задача - внимательно прочитать PDF документ (или его часть) и извлечь все данные в структурированном JSON формате.
 
 Структура данных должна включать:
-- Шапка: Компания, Регистрационный №, Дата
-- Адрес: полный адрес здания
-- Паспортные данные: тип здания, год постройки, этажность и т.д.
-- Результаты обследования: детальная информация о дефектах, повреждениях, характеристиках
-- Выводы и рекомендации
+- шапка: { компания, регистрационный_номер, дата }
+- адрес: { улица, дом, корпус, строение, район_поселение }
+- паспортные_данные: объект с полями паспорта здания
+- результаты_обследования: ОБЯЗАТЕЛЬНО в следующем виде (два массива, не один "элементы"):
+
+  результаты_обследования: {
+    "конструкции_и_системы": [
+      {
+        "наименование": "Крыша" | "Водоотвод" | "Фасад" | "Балконы" | "Стены" | "Подвал" | "Тех. подполье" | "Лестницы" | "Перекрытия" | "Система отопления" | "Система ГВС" | "Система ХВС" | "Канализация" | "Мусоропроводы" | "Места общего пользования" и т.д.,
+        "характеристика": "строка с описанием",
+        "дефекты": [
+          {
+            "элемент": "Кровля" | "Свесы" | "Чердак" | "" | ... (подэлемент или пусто),
+            "характер_и_местоположение": "текст дефекта",
+            "оценка_по_предыдущему_обследованию": "У" | "Р" | "Н" | "",
+            "процент_дефектной_части": число или "",
+            "оценка_текущая": "У" | "Р" | "Н" | "ОГР" | ""
+          }
+        ]
+      }
+    ],
+    "инженерные_системы_и_оборудование": [
+      {
+        "наименование": "Связь с ОДС" | "Вентиляция" | "Лифты" | "Система ЭС (ВРУ - вводно-распределительное устройство)" | "Система ППАиДУ" | "Система оповещения о пожаре" и т.д.,
+        "характеристика": "строка",
+        "дефекты": "строка (описание состояния, не массив)",
+        "номер_и_дата_последнего_обследования": "",
+        "специализированная_организация": "",
+        "оценка_предыдущая": "У" | "Р" | "Н" | "",
+        "оценка_текущая": "У" | "Р" | "Н" | ""
+      }
+    ]
+  }
+
+НЕ используй один массив "элементы". Всегда возвращай именно конструкции_и_системы (массив) и инженерные_системы_и_оборудование (массив) внутри результаты_обследования.
 
 ВАЖНЫЕ ПРАВИЛА:
 1. Извлекай ТОЛЬКО данные, которые явно присутствуют в документе
@@ -300,7 +373,7 @@ except:
   }
 
   /**
-   * Извлекает указанные страницы из PDF в отдельный временный файл
+   * Извлекает указанные страницы из PDF в отдельный временный файл (TypeScript, pdf-utils).
    */
   private async extractPdfPages(
     filePath: string,
@@ -308,78 +381,11 @@ except:
     endPage: number,
   ): Promise<string> {
     try {
-      const { execFile } = await import("child_process");
-      const { promisify } = await import("util");
-      const execFileAsync = promisify(execFile);
-      const os = await import("os");
-      const path = await import("path");
-
-      const tempOutputPath = path.join(
-        os.tmpdir(),
-        `pdf_chunk_${Date.now()}_${startPage}-${endPage}.pdf`,
-      );
-      const tempOutputPathNormalized = tempOutputPath.replace(/\\/g, "/");
-      const filePathNormalized = filePath.replace(/\\/g, "/");
-
-      const pythonScript = `
-import sys
-import os
-try:
-    from PyPDF2 import PdfWriter, PdfReader
-    
-    input_path = r"${filePathNormalized}"
-    output_path = r"${tempOutputPathNormalized}"
-    
-    reader = PdfReader(input_path)
-    writer = PdfWriter()
-    
-    # Извлекаем страницы (индексация с 0, но пользователь указывает с 1)
-    start_idx = ${startPage - 1}
-    end_idx = min(${endPage}, len(reader.pages))
-    
-    for page_num in range(start_idx, end_idx):
-        writer.add_page(reader.pages[page_num])
-    
-    with open(output_path, "wb") as output_file:
-        writer.write(output_file)
-    
-    print(output_path)
-except Exception as e:
-    print(f"ERROR: {e}", file=sys.stderr)
-    sys.exit(1)
-`;
-
-      const tempScriptPath = path.join(process.cwd(), "temp_extract_pages.py");
-      fs.writeFileSync(tempScriptPath, pythonScript);
-
-      const { stdout, stderr } = await execFileAsync("python", [
-        tempScriptPath,
-      ]);
-      fs.unlinkSync(tempScriptPath);
-
-      if (stderr && stderr.trim()) {
-        console.warn(
-          `⚠️ Предупреждение при извлечении страниц: ${stderr.trim()}`,
-        );
-      }
-
-      const extractedFilePath = stdout.trim();
-      if (
-        !extractedFilePath ||
-        extractedFilePath.startsWith("ERROR") ||
-        !fs.existsSync(extractedFilePath)
-      ) {
-        throw new Error(
-          `Не удалось извлечь страницы из PDF: ${extractedFilePath || stderr || "неизвестная ошибка"}`,
-        );
-      }
-
-      return extractedFilePath;
+      return await extractPdfPagesUtil(filePath, startPage, endPage);
     } catch (error) {
       console.warn(
-        `⚠️ Не удалось извлечь страницы, используем весь файл: ${error.message}`,
+        `⚠️ Не удалось извлечь страницы, используем весь файл: ${(error as Error).message}`,
       );
-      // В случае ошибки возвращаем оригинальный файл
       return filePath;
     }
   }

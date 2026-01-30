@@ -3,12 +3,34 @@ import * as fs from "fs";
 import * as path from "path";
 import { API_ROUTES } from "./api.config";
 
+/** Флаги по умолчанию, если appFlags.json недоступен (расширение показывает вкладку «Основное» и кнопки). */
+const DEFAULT_APP_FLAGS: Record<string, boolean> = {
+  searchAllInputs: true,
+  saveData: true,
+  loadData: true,
+  clearData: true,
+  downloadPhotos: true,
+  createFakeSelects: true,
+  setRepresentatives: true,
+  setRatings: true,
+  parser: true,
+  parserPDF: true,
+  useAI: true,
+  algorythms: false,
+};
+
 @Injectable()
 export class ConfigService {
   private readonly flagsFilePath: string;
 
   constructor() {
-    this.flagsFilePath = path.join(__dirname, "../../appConfig/appFlags.json");
+    // Порядок: project root (при запуске из корня), затем относительно dist (при деплое копируйте appConfig в dist)
+    const candidates = [
+      path.join(process.cwd(), "appConfig", "appFlags.json"),
+      path.join(__dirname, "../../appConfig", "appFlags.json"),
+      path.join(__dirname, "../appConfig", "appFlags.json"),
+    ];
+    this.flagsFilePath = candidates.find((p) => fs.existsSync(p)) ?? candidates[0];
   }
 
   // Чтение функций из файла
@@ -19,7 +41,7 @@ export class ConfigService {
       return JSON.parse(data);
     } catch (error) {
       console.error("Ошибка чтения appFlags.json:", error);
-      return {};
+      return { ...DEFAULT_APP_FLAGS };
     }
   }
 
