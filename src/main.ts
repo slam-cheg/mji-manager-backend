@@ -15,9 +15,10 @@ async function bootstrap() {
   app.use(bodyParser.json({ limit: "50mb" })); // Увеличиваем лимит до 50MB
   app.use(bodyParser.urlencoded({ limit: "50mb", extended: true }));
 
-  const port = process.env.PORT || 3000;
-  await app.listen(port, "0.0.0.0"); // Слушаем на всех интерфейсах
-  console.log(`🚀 Server running on http://0.0.0.0:${port}`);
+  const port = process.env.PORT ? parseInt(String(process.env.PORT), 10) : 3000;
+  const host = process.env.HOST || "0.0.0.0";
+  await app.listen(port, host);
+  console.log(`🚀 Server running on http://${host}:${port}`);
 }
 
 bootstrap().catch((err) => {

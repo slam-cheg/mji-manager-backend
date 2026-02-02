@@ -361,6 +361,90 @@ opacity: 0.7;
 background: #00931a !important;
 }
 
+.form__loader {
+display: none;
+}
+.form__loader_visible {
+display: block;
+}
+.form__loader_visible_flex {
+display: flex;
+flex-direction: column;
+gap: 8px;
+}
+.form_parser .form__loader {
+display: none;
+}
+.form_parser.form_parser_loading .form__field,
+.form_parser.form_parser_loading .form__button {
+display: none;
+}
+.form_parser.form_parser_loading .form__loader {
+display: flex;
+flex-direction: column;
+gap: 8px;
+}
+.form__loader-inner {
+margin: 10px auto;
+}
+.form__loader-text {
+font-size: 14px;
+color: #1a1a18;
+}
+.loader_spinner {
+width: 16px;
+height: 16px;
+border: 2px solid #e9e9e9;
+border-top-color: #1f5473;
+border-radius: 50%;
+display: inline-block;
+vertical-align: middle;
+margin-right: 6px;
+animation: loaderSpin 0.8s linear infinite;
+}
+@keyframes loaderSpin {
+to { transform: rotate(360deg); }
+}
+
+.pdf-step {
+margin: 6px 0;
+display: flex;
+align-items: center;
+}
+.pdf-step-icon {
+min-width: 28px;
+}
+.pdf-step-label {
+font-size: 14px;
+color: #1a1a18;
+}
+.pdf-step-icon_done {
+color: #00931a;
+font-weight: bold;
+margin-right: 6px;
+}
+.pdf-step-icon_error {
+color: #c00;
+margin-right: 6px;
+}
+.pdf-steps-result {
+padding: 8px 0;
+color: #333;
+font-size: 14px;
+}
+
+.switcher__label {
+margin: 0;
+}
+.switcher__text {
+margin-left: 4px;
+font-size: 12px;
+color: #1a1a18;
+}
+.switcher__input {
+display: none;
+}
+
 .fakeSelect {
 margin: 0;
 background: #fff;
