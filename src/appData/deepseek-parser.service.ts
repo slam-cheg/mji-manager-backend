@@ -195,7 +195,7 @@ export class DeepSeekParserService {
               Authorization: `Bearer ${this.API_KEY}`,
               "Content-Type": "application/json",
             },
-            timeout: 30000,
+            timeout: 120000, // 2 минуты на одну фразу (DeepSeek может отвечать долго)
           },
         ),
       );

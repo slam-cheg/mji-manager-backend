@@ -42,6 +42,17 @@ export class UploadController {
       fs.writeFileSync(filePath, buffer);
       console.log(`✅ Файл успешно сохранен: ${filePath}`);
 
+      // Поток NDJSON: расширение обновляет статусы по шагам (Загрузка PDF → Парсинг → AI → Вставка)
+      res.setHeader("Content-Type", "application/x-ndjson");
+      res.setHeader("Cache-Control", "no-cache");
+      res.flushHeaders?.();
+
+      const sendStep = (step: number, status: string) => {
+        res.write(JSON.stringify({ step, status }) + "\n");
+        res.flush?.();
+      };
+      sendStep(0, "done"); // Загрузка PDF уже выполнена
+
       const parsedData = await this.uploadService.processFile(
         filePath,
         body.useAI ?? false,
@@ -49,16 +60,23 @@ export class UploadController {
         body.useDeepSeek ?? true,
         body.address || "",
         body.registrationNumber || "",
+        sendStep,
       );
       console.log(`Парсинг завершен`);
 
-      const payload = { success: true, data: parsedData };
       const bodySize = JSON.stringify(parsedData).length;
       console.log(`📤 Отправляем ответ клиенту, размер data: ${bodySize} символов`);
-      res.status(200).json(payload);
+      res.write(JSON.stringify({ done: true, data: parsedData }) + "\n");
+      res.end();
     } catch (error) {
       console.error("❌ Ошибка обработки Base64 PDF:", error);
-      res.status(500).json({ success: false, error: (error as Error).message });
+      const errMsg = (error as Error).message;
+      if (res.headersSent) {
+        res.write(JSON.stringify({ error: errMsg }) + "\n");
+        res.end();
+      } else {
+        res.status(500).json({ success: false, error: errMsg });
+      }
     }
   }
 

@@ -18,6 +18,7 @@ export class UploadService {
     useDeepSeek: boolean = false,
     address: string = "",
     registrationNumber: string = "",
+    onStep?: (step: number, status: string) => void,
   ): Promise<any> {
     try {
       console.log(`✅ Файл успешно сохранен: ${filePath}`);
@@ -49,6 +50,7 @@ export class UploadService {
       }
 
       console.log(`✅ Парсинг завершен. Найдено отчетов: ${reports.length}`);
+      onStep?.(1, "done"); // Парсинг в DeepSeek завершён — расширение обновит шаг 1
 
       // Нормализуем ключи под расширение: "Результаты обследования" -> "Результаты выборочного обследования", "Описание дефектов" -> "Выявленные дефекты"
       reports = reports.map((r) => this.normalizeParsedToExtension(r));
@@ -58,6 +60,7 @@ export class UploadService {
         const modifiedReports = await Promise.all(
           reports.map((r) => this.modifyDataWithAI(r)),
         );
+        onStep?.(2, "done"); // Перефразирование (AI) завершено — расширение обновит шаг 2
         return hasFilter && modifiedReports.length > 0
           ? modifiedReports[0]
           : modifiedReports;
