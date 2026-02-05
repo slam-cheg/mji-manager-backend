@@ -201,8 +201,12 @@ export class DeepSeekParserService {
       );
       const content = response.data?.choices?.[0]?.message?.content?.trim();
       return content && content.length > 0 ? content : trimmed;
-    } catch (error) {
-      console.warn(`⚠️ Не удалось перефразировать фразу: ${error?.message}`);
+    } catch (error: any) {
+      const phrasePreview =
+        trimmed.length > 80 ? trimmed.slice(0, 80) + "…" : trimmed;
+      console.warn(
+        `⚠️ Не удалось перефразировать фразу (ошибка: ${error?.message ?? error}). Текст: "${phrasePreview}"`,
+      );
       return trimmed;
     }
   }

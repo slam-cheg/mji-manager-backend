@@ -266,15 +266,32 @@ export class UploadService {
     if (defectKey) {
       const text = String(obj[defectKey] || "").trim();
       if (text) {
-        const rephrased = await this.deepSeekParser.rephraseDefectText(text);
-        obj["Выявленные дефекты"] = rephrased;
-        if (defectKey !== "Выявленные дефекты") delete obj[defectKey];
+        try {
+          const rephrased = await this.deepSeekParser.rephraseDefectText(text);
+          obj["Выявленные дефекты"] = rephrased;
+          if (defectKey !== "Выявленные дефекты") delete obj[defectKey];
+        } catch (err) {
+          console.warn(
+            `⚠️ Фраза не перефразирована (цикл продолжается): "${text.length > 80 ? text.slice(0, 80) + "…" : text}"`,
+            (err as Error)?.message ?? err,
+          );
+          obj["Выявленные дефекты"] = text;
+          if (defectKey !== "Выявленные дефекты") delete obj[defectKey];
+        }
       }
     }
     for (const key of Object.keys(obj)) {
       const v = obj[key];
-      if (v && typeof v === "object" && !Array.isArray(v))
-        await this.rephraseDefectBlock(v);
+      if (v && typeof v === "object" && !Array.isArray(v)) {
+        try {
+          await this.rephraseDefectBlock(v);
+        } catch (err) {
+          console.warn(
+            `⚠️ Ошибка при перефразировании вложенного блока (ключ "${key}"), цикл продолжается:`,
+            (err as Error)?.message ?? err,
+          );
+        }
+      }
     }
   }
 
