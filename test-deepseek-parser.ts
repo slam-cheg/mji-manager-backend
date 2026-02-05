@@ -462,7 +462,7 @@ except Exception as e:
 									"X-Title": process.env.ROUTERAI_X_TITLE || process.env.OPENROUTER_X_TITLE,
 								},
 							},
-							timeout: 300000,
+							timeout: 900000, // 15 минут (как в deepseek-parser.service)
 						}
 					)
 				);

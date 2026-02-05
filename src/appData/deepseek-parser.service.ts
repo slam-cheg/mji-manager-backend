@@ -520,7 +520,7 @@ export class DeepSeekParserService {
                     process.env.OPENROUTER_X_TITLE,
                 }),
               },
-              timeout: 300000, // 5 минут на запрос
+              timeout: 900000, // 15 минут на запрос (тяжёлые отчёты могут долго обрабатываться в DeepSeek)
             },
           ),
         );
