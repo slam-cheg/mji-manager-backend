@@ -1,13 +1,13 @@
 import nodemailer from "nodemailer";
 
 const transporter = nodemailer.createTransport({
-  service: "google",
-  host: "smtp.gmail.com",
+  service: "yandex",
+  host: "smtp.yandex.com",
   port: 587,
   secure: false, // Use `true` for port 465, `false` for all other ports
   auth: {
-    user: "sli@sste.ru",
-    pass: "c48-t4g-hfw-4jg",
+    user: "arhiv@sste.ru",
+    pass: "3n9-UX4-vFX-gw7",
   },
 });
 
