@@ -63,15 +63,29 @@ export class UploadController {
       };
       sendStep(0, "done"); // Загрузка PDF уже выполнена
 
-      const parsedData = await this.uploadService.processFile(
-        filePath,
-        body.useAI ?? false,
-        "",
-        body.useDeepSeek ?? true,
-        body.address || "",
-        body.registrationNumber || "",
-        sendStep,
-      );
+      // Keep-alive по потоку: раз в 15 сек пишем строку в ответ, чтобы соединение и service worker расширения не засыпали
+      const KEEPALIVE_INTERVAL_MS = 15000;
+      const keepAliveInterval = setInterval(() => {
+        if (!res.writableEnded) {
+          res.write(JSON.stringify({ keepalive: true }) + "\n");
+          res.flush?.();
+        }
+      }, KEEPALIVE_INTERVAL_MS);
+
+      let parsedData: any;
+      try {
+        parsedData = await this.uploadService.processFile(
+          filePath,
+          body.useAI ?? false,
+          "",
+          body.useDeepSeek ?? true,
+          body.address || "",
+          body.registrationNumber || "",
+          sendStep,
+        );
+      } finally {
+        clearInterval(keepAliveInterval);
+      }
       console.log(`Парсинг завершен`);
 
       const bodySize = JSON.stringify(parsedData).length;
