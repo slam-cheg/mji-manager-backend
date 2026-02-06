@@ -31,7 +31,11 @@ export class UploadController {
     try {
       console.log(`📥 Декодируем base64 в PDF для файла: ${body.fileName}`);
 
-      const base64Data = body.fileData.split(",")[1];
+      // Расширение шлёт data URL (data:application/pdf;base64,...), бэкенд принимает и его, и голый base64
+      const base64Data =
+        typeof body.fileData === "string" && body.fileData.includes(",")
+          ? body.fileData.split(",")[1]
+          : body.fileData;
       const buffer = Buffer.from(base64Data, "base64");
 
       const uploadsDir = path.join(process.cwd(), "uploads");
@@ -90,7 +94,7 @@ export class UploadController {
     body: { results: Record<string, any> },
   ) {
     if (!body?.results || typeof body.results !== "object") {
-      return { success: false, message: "Неверный формат: ожидается { results }" };
+      return { success: false, error: "Неверный формат: ожидается { results }" };
     }
     try {
       const rephrased = await this.uploadService.rephraseDefectsBlock(
