@@ -28,6 +28,8 @@
 
 ## Project setup
 
+**Требования:** Node.js **>= 20.11.1** (рекомендуется 20.18+ или 22 LTS) и npm >= 10. При `v20.10.0` будут предупреждения и возможны сбои — обновите Node: [nodejs.org](https://nodejs.org/) или `nvm install 20.18`.
+
 ```bash
 $ npm install
 ```

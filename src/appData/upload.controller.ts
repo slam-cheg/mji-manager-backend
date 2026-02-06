@@ -1,6 +1,12 @@
 import { Controller, Post, Body, Res } from "@nestjs/common";
 import { Response } from "express";
 import * as fs from "fs";
+
+/** Express Response с опциональными методами для стриминга (flush/flushHeaders есть в runtime при compression и т.д.) */
+type StreamingResponse = Response & {
+  flushHeaders?: () => void;
+  flush?: () => void;
+};
 import * as path from "path";
 import { UploadService } from "./upload.service"; // Импортируем UploadService
 import { API_ROUTES } from "src/config/api.config";
@@ -20,7 +26,7 @@ export class UploadController {
       address?: string; // адрес дома — парсим только страницы с этим адресом
       registrationNumber?: string; // регистрационный № отчёта (напр. С-23-0003239) — парсим только листы этого отчёта
     },
-    @Res() res: Response,
+    @Res() res: StreamingResponse,
   ) {
     if (!body || !body.fileName || !body.fileData) {
       console.error("❌ Ошибка: данные не получены должным образом.");

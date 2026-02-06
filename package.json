@@ -5,6 +5,7 @@
   "author": "",
   "private": true,
   "license": "UNLICENSED",
+  "engines": { "node": ">=20.11.1", "npm": ">=10.0.0" },
   "scripts": {
     "build": "nest build",
     "start": "cross-env PORT=2010 node dist/src/main",
