@@ -9,13 +9,13 @@ export interface MailerData {
 /** Читаем переменные в момент отправки, чтобы .env уже был загружен ConfigModule */
 function getSmtpConfig() {
   const pass =
-    process.env.SMTP_PASS || process.env.SMTP_PASSWORD || "";
+    process.env.SMTP_PASS;
   return {
-    user: process.env.SMTP_USER || "ssezakupshik@yandex.ru",
+    user: process.env.SMTP_USER,
     pass,
-    host: process.env.SMTP_HOST || "smtp.yandex.com",
-    port: Number(process.env.SMTP_PORT) || 587,
-    secure: process.env.SMTP_SECURE === "true",
+    host: process.env.SMTP_HOST,
+    port: Number(process.env.SMTP_PORT),
+    secure: process.env.SMTP_SECURE,
   };
 }
 
