@@ -1,29 +1,81 @@
 import nodemailer from "nodemailer";
 
+export interface MailerData {
+  email: string;
+  theme: string;
+  message: string;
+}
+
+const SMTP_USER = process.env.SMTP_USER || "ssezakupshik@yandex.ru";
+const SMTP_PASS = process.env.SMTP_PASS || "";
+
 const transporter = nodemailer.createTransport({
   service: "yandex",
-  host: "smtp.yandex.com",
-  port: 587,
-  secure: false, // Use `true` for port 465, `false` for all other ports
+  host: process.env.SMTP_HOST || "smtp.yandex.com",
+  port: Number(process.env.SMTP_PORT) || 587,
+  secure: process.env.SMTP_SECURE === "true",
   auth: {
-    user: "arhiv@sste.ru",
-    pass: "3n9-UX4-vFX-gw7",
+    user: SMTP_USER,
+    pass: SMTP_PASS,
   },
 });
 
-// async..await is not allowed in global scope, must use a wrapper
-async function main(data) {
-  // send mail with defined transport object
-  const info = await transporter.sendMail({
-    from: '"sli@sste.ru"', // sender address
-    to: data.email, // list of receivers
-    subject: data.theme, // Subject line
-    text: "", // plain text body
-    html: `<b>${data.message}</b>`, // html body
-  });
-
-  console.log("Message sent: %s", info.messageId);
-  // Message sent: <d786aa62-4e0a-070a-47ed-0b0666549519@ethereal.email>
+/** Экранирует HTML, чтобы в письме не было инъекций и поломанной разметки */
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
-export default main;
+/**
+ * Отправляет письмо.
+ * @throws Error при невалидных данных или ошибке SMTP
+ */
+async function sendMail(data: MailerData): Promise<nodemailer.SentMessageInfo> {
+  const email = data?.email?.trim();
+  const theme = data?.theme?.trim();
+  const message = data?.message;
+
+  if (!email) {
+    throw new Error("Mailer: не указан адрес получателя (email)");
+  }
+  if (!theme) {
+    throw new Error("Mailer: не указана тема письма (theme)");
+  }
+  if (message == null || String(message).trim() === "") {
+    throw new Error("Mailer: не указан текст письма (message)");
+  }
+
+  if (!SMTP_PASS) {
+    console.warn(
+      "Mailer: SMTP_PASS не задан. Задайте SMTP_PASS в .env для отправки писем.",
+    );
+    throw new Error(
+      "Mailer: пароль SMTP не настроен (SMTP_PASS). Отправка писем недоступна.",
+    );
+  }
+
+  try {
+    const htmlMessage = message.includes("<")
+      ? message
+      : `<b>${escapeHtml(message)}</b>`;
+    const info = await transporter.sendMail({
+      from: `"${SMTP_USER}" <${SMTP_USER}>`,
+      to: email,
+      subject: theme,
+      text: message.replace(/<[^>]*>/g, "").trim() || theme,
+      html: htmlMessage,
+    });
+    console.log("Mailer: письмо отправлено, messageId: %s", info.messageId);
+    return info;
+  } catch (err) {
+    const msg =
+      err instanceof Error ? err.message : String(err);
+    console.error("Mailer: ошибка отправки:", msg);
+    throw new Error(`Mailer: не удалось отправить письмо — ${msg}`);
+  }
+}
+
+export default sendMail;
