@@ -1,12 +1,20 @@
 import { Module } from "@nestjs/common";
 import { ConfigService } from "./config.service";
 import { ConfigController } from "./config.controller";
-import { AuthModule } from "../auth/auth.module";
+import { AdminAuthGuard } from "./admin-auth.guard";
+import { JwtModule } from "@nestjs/jwt";
 
 @Module({
-  imports: [AuthModule],
+  imports: [
+    JwtModule.registerAsync({
+      useFactory: () => ({
+        secret: process.env.JWT_SECRET || "secret",
+        signOptions: { expiresIn: "1h" },
+      }),
+    }),
+  ],
   controllers: [ConfigController],
-  providers: [ConfigService],
+  providers: [ConfigService, AdminAuthGuard],
   exports: [ConfigService],
 })
 export class AppConfigModule {}
