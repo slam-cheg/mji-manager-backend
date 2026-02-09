@@ -6,19 +6,18 @@ export interface MailerData {
   message: string;
 }
 
-const SMTP_USER = process.env.SMTP_USER || "ssezakupshik@yandex.ru";
-const SMTP_PASS = process.env.SMTP_PASS || "";
-
-const transporter = nodemailer.createTransport({
-  service: "yandex",
-  host: process.env.SMTP_HOST || "smtp.yandex.com",
-  port: Number(process.env.SMTP_PORT) || 587,
-  secure: process.env.SMTP_SECURE === "true",
-  auth: {
-    user: SMTP_USER,
-    pass: SMTP_PASS,
-  },
-});
+/** Читаем переменные в момент отправки, чтобы .env уже был загружен ConfigModule */
+function getSmtpConfig() {
+  const pass =
+    process.env.SMTP_PASS || process.env.SMTP_PASSWORD || "";
+  return {
+    user: process.env.SMTP_USER || "ssezakupshik@yandex.ru",
+    pass,
+    host: process.env.SMTP_HOST || "smtp.yandex.com",
+    port: Number(process.env.SMTP_PORT) || 587,
+    secure: process.env.SMTP_SECURE === "true",
+  };
+}
 
 /** Экранирует HTML, чтобы в письме не было инъекций и поломанной разметки */
 function escapeHtml(text: string): string {
@@ -48,21 +47,29 @@ async function sendMail(data: MailerData): Promise<nodemailer.SentMessageInfo> {
     throw new Error("Mailer: не указан текст письма (message)");
   }
 
-  if (!SMTP_PASS) {
+  const smtp = getSmtpConfig();
+  if (!smtp.pass) {
     console.warn(
-      "Mailer: SMTP_PASS не задан. Задайте SMTP_PASS в .env для отправки писем.",
+      "Mailer: пароль не задан. Задайте SMTP_PASS или SMTP_PASSWORD в .env.",
     );
     throw new Error(
-      "Mailer: пароль SMTP не настроен (SMTP_PASS). Отправка писем недоступна.",
+      "Mailer: пароль SMTP не настроен (SMTP_PASS или SMTP_PASSWORD). Отправка писем недоступна.",
     );
   }
 
   try {
+    const transporter = nodemailer.createTransport({
+      service: "yandex",
+      host: smtp.host,
+      port: smtp.port,
+      secure: smtp.secure,
+      auth: { user: smtp.user, pass: smtp.pass },
+    });
     const htmlMessage = message.includes("<")
       ? message
       : `<b>${escapeHtml(message)}</b>`;
     const info = await transporter.sendMail({
-      from: `"${SMTP_USER}" <${SMTP_USER}>`,
+      from: `"${smtp.user}" <${smtp.user}>`,
       to: email,
       subject: theme,
       text: message.replace(/<[^>]*>/g, "").trim() || theme,
