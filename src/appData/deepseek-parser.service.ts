@@ -11,7 +11,10 @@ import {
   findPageRangeForResultsSection as findPageRangeForResultsSectionUtil,
   extractPdfPages as extractPdfPagesUtil,
 } from "./pdf-utils";
-import { ConfigService } from "../config/config.service";
+import {
+  ConfigService,
+  DEFAULT_AI_SYSTEM_PROMPT,
+} from "../config/config.service";
 
 /**
  * Сервис для парсинга PDF через DeepSeek API с разбивкой на части
@@ -175,18 +178,15 @@ export class DeepSeekParserService {
       return "";
     }
     try {
+      const promptTemplate = this.configService
+        .getAiSettings()
+        .rephraseDefectPrompt.replace(/\{\{text\}\}/g, trimmed);
       const response = await firstValueFrom(
         this.httpService.post(
           `${this.API_BASE_URL}/chat/completions`,
           {
             model: this.configService.getAiSettings().model,
-            messages: [
-              {
-                role: "user",
-                content: `Перефразируй следующее описание дефекта в отчёте по обследованию здания. Требования: только инженерный язык, не длиннее двух предложений. Верни только перефразированный текст, без кавычек и пояснений.
-Важно: если в тексте написано только «Отсутствует» (или «Отсутвует») — верни пустую строку: это означает, что данного элемента нет в конструкции.\n\nТекст: ${trimmed}`,
-              },
-            ],
+            messages: [{ role: "user", content: promptTemplate }],
             temperature: 0.2,
             max_tokens: 300,
           },
@@ -241,11 +241,9 @@ export class DeepSeekParserService {
     return JSON.parse(fs.readFileSync(templatePath, "utf-8"));
   }
 
-  /**
-   * Системный промпт берётся из настроек админки (ai-settings.json).
-   */
+  /** Системный промпт захардкожен, не редактируется в админке. */
   private createSystemPrompt(_template: any): string {
-    return this.configService.getAiSettings().systemPrompt;
+    return DEFAULT_AI_SYSTEM_PROMPT;
   }
 
   /**
