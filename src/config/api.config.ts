@@ -23,6 +23,8 @@ export const API_ROUTES = {
   },
   config: {
     changeFunctions: "/change-functions",
+    getAiSettings: "/ai-settings",
+    updateAiSettings: "/ai-settings",
   },
   system: {
     checkResponse: "/check-response-from-server",

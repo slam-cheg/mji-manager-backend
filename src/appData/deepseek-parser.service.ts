@@ -11,6 +11,7 @@ import {
   findPageRangeForResultsSection as findPageRangeForResultsSectionUtil,
   extractPdfPages as extractPdfPagesUtil,
 } from "./pdf-utils";
+import { ConfigService } from "../config/config.service";
 
 /**
  * Сервис для парсинга PDF через DeepSeek API с разбивкой на части
@@ -30,17 +31,16 @@ export class DeepSeekParserService {
     "https://openrouter.ai/api/v1";
   private readonly API_KEY =
     process.env.ROUTERAI_API_KEY || process.env.OPENROUTER_API_KEY;
-  private readonly DEEPSEEK_MODEL =
-    process.env.ROUTERAI_DEEPSEEK_MODEL ||
-    process.env.DEEPSEEK_MODEL ||
-    "deepseek/deepseek-v3.2";
-  // Движок определяется автоматически на основе типа PDF (не из env)
+  // Модель и промпты берутся из настроек админки (ai-settings.json), не из .env
   private readonly PAGES_PER_CHUNK = 10; // Разбиваем по 10 страниц
   private readonly MAX_TOKENS = 131000; // Лимит токенов
   private readonly MAX_RETRIES = 3; // Количество попыток при ошибке
   private readonly RETRY_DELAY = 2000; // Задержка между попытками (мс)
 
-  constructor(private readonly httpService: HttpService) {
+  constructor(
+    private readonly httpService: HttpService,
+    private readonly configService: ConfigService,
+  ) {
     if (!this.API_KEY) {
       console.warn(
         "⚠️ API ключ не задан (ROUTERAI_API_KEY или OPENROUTER_API_KEY). Парсинг через DeepSeek будет недоступен.",
@@ -179,7 +179,7 @@ export class DeepSeekParserService {
         this.httpService.post(
           `${this.API_BASE_URL}/chat/completions`,
           {
-            model: this.DEEPSEEK_MODEL,
+            model: this.configService.getAiSettings().model,
             messages: [
               {
                 role: "user",
@@ -242,90 +242,37 @@ export class DeepSeekParserService {
   }
 
   /**
-   * Создает системный промпт для извлечения данных по template.json
+   * Системный промпт берётся из настроек админки (ai-settings.json).
    */
-  private createSystemPrompt(template: any): string {
-    return `Ты эксперт по извлечению структурированных данных из технических отчетов обследования зданий.
-
-Твоя задача - внимательно прочитать PDF документ (или его часть) и извлечь все данные в структурированном JSON формате.
-
-Структура данных должна включать:
-- шапка: { компания, регистрационный_номер, дата }
-- адрес: { улица, дом, корпус, строение, район_поселение }
-- паспортные_данные: объект с полями паспорта здания
-- результаты_обследования: ОБЯЗАТЕЛЬНО в следующем виде (два массива, не один "элементы"):
-
-  результаты_обследования: {
-    "конструкции_и_системы": [
-      {
-        "наименование": "Крыша" | "Водоотвод" | "Фасад" | "Балконы" | "Стены" | "Подвал" | "Тех. подполье" | "Лестницы" | "Перекрытия" | "Система отопления" | "Система ГВС" | "Система ХВС" | "Канализация" | "Мусоропроводы" | "Места общего пользования" и т.д.,
-        "характеристика": "строка с описанием",
-        "дефекты": [
-          {
-            "элемент": "Кровля" | "Свесы" | "Чердак" | "" | ... (подэлемент или пусто),
-            "характер_и_местоположение": "текст дефекта",
-            "оценка_по_предыдущему_обследованию": "У" | "Р" | "Н" | "",
-            "процент_дефектной_части": число или "",
-            "оценка_текущая": "У" | "Р" | "Н" | "ОГР" | ""
-          }
-        ]
-      }
-    ],
-    "инженерные_системы_и_оборудование": [
-      {
-        "наименование": "Связь с ОДС" | "Вентиляция" | "Лифты" | "Система ЭС (ВРУ - вводно-распределительное устройство)" | "Система ППАиДУ" | "Система оповещения о пожаре" и т.д.,
-        "характеристика": "строка",
-        "дефекты": "строка (описание состояния, не массив)",
-        "номер_и_дата_последнего_обследования": "",
-        "специализированная_организация": "",
-        "оценка_предыдущая": "У" | "Р" | "Н" | "",
-        "оценка_текущая": "У" | "Р" | "Н" | ""
-      }
-    ]
-  }
-
-НЕ используй один массив "элементы". Всегда возвращай именно конструкции_и_системы (массив) и инженерные_системы_и_оборудование (массив) внутри результаты_обследования.
-
-ВАЖНЫЕ ПРАВИЛА:
-1. Извлекай ТОЛЬКО данные, которые явно присутствуют в документе
-2. Если поле не найдено - оставь пустое значение (пустая строка "", 0, пустой массив [])
-3. Сохраняй структуру вложенных объектов и массивов
-4. Для числовых значений используй числа, для строк - строки
-5. Если документ содержит несколько отчетов - извлекай данные для каждого отдельно
-6. Если это часть документа (не все страницы) - извлекай только те данные, которые есть на этих страницах
-
-Верни ТОЛЬКО валидный JSON объект (или массив объектов, если отчетов несколько) без дополнительных комментариев, объяснений или markdown разметки.`;
+  private createSystemPrompt(_template: any): string {
+    return this.configService.getAiSettings().systemPrompt;
   }
 
   /**
-   * Создает пользовательский промпт для конкретной части документа
+   * Пользовательский промпт строится из шаблона настроек с подстановкой {{start}}, {{end}}, {{firstChunkHint}}, {{middleChunkHint}}, {{lastChunkHint}}.
    */
   private createUserPrompt(
     chunk: { start: number; end: number },
     isFirstChunk: boolean,
     isLastChunk: boolean,
   ): string {
-    let prompt = `Проанализируй страницы ${chunk.start}-${chunk.end} этого PDF документа и извлеки все данные согласно шаблону.`;
-
-    if (isFirstChunk) {
-      prompt +=
-        "\n\nЭто начало документа. Обрати особое внимание на извлечение данных из шапки (компания, регистрационный номер, дата), адреса и паспортных данных здания.";
-    }
-
-    if (!isFirstChunk && !isLastChunk) {
-      prompt +=
-        "\n\nЭто средняя часть документа. Сосредоточься на извлечении данных из секции 'РЕЗУЛЬТАТЫ ОБСЛЕДОВАНИЯ'.";
-    }
-
-    if (isLastChunk) {
-      prompt +=
-        "\n\nЭто конец документа. Обрати особое внимание на извлечение выводов и рекомендаций.";
-    }
-
-    prompt +=
-      "\n\nВерни ТОЛЬКО валидный JSON объект без дополнительного текста.";
-
-    return prompt;
+    const tpl = this.configService.getAiSettings().userPromptTemplate;
+    const firstChunkHint = isFirstChunk
+      ? "\n\nЭто начало документа. Обрати особое внимание на извлечение данных из шапки (компания, регистрационный номер, дата), адреса и паспортных данных здания."
+      : "";
+    const middleChunkHint =
+      !isFirstChunk && !isLastChunk
+        ? "\n\nЭто средняя часть документа. Сосредоточься на извлечении данных из секции 'РЕЗУЛЬТАТЫ ОБСЛЕДОВАНИЯ'."
+        : "";
+    const lastChunkHint = isLastChunk
+      ? "\n\nЭто конец документа. Обрати особое внимание на извлечение выводов и рекомендаций."
+      : "";
+    return tpl
+      .replace(/\{\{start\}\}/g, String(chunk.start))
+      .replace(/\{\{end\}\}/g, String(chunk.end))
+      .replace(/\{\{firstChunkHint\}\}/g, firstChunkHint)
+      .replace(/\{\{middleChunkHint\}\}/g, middleChunkHint)
+      .replace(/\{\{lastChunkHint\}\}/g, lastChunkHint);
   }
 
   /**
@@ -453,7 +400,7 @@ export class DeepSeekParserService {
     }
 
     const payload = {
-      model: this.DEEPSEEK_MODEL,
+      model: this.configService.getAiSettings().model,
       messages: [
         { role: "system", content: systemPrompt },
         {
