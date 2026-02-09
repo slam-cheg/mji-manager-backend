@@ -55,20 +55,30 @@ export class UploadController {
       // Поток NDJSON: расширение обновляет статусы по шагам (Загрузка PDF → Парсинг → AI → Вставка)
       res.setHeader("Content-Type", "application/x-ndjson");
       res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Transfer-Encoding", "chunked");
       res.flushHeaders?.();
 
+      const flushRes = () => {
+        if (typeof (res as any).flush === "function") (res as any).flush();
+        else if (typeof (res as any).uncork === "function") (res as any).uncork();
+      };
+
       const sendStep = (step: number, status: string) => {
-        res.write(JSON.stringify({ step, status }) + "\n");
-        res.flush?.();
+        const line = JSON.stringify({ step, status }) + "\n";
+        if (typeof (res as any).cork === "function") (res as any).cork();
+        res.write(line);
+        flushRes();
       };
       sendStep(0, "done"); // Загрузка PDF уже выполнена
 
-      // Keep-alive по потоку: раз в 15 сек пишем строку в ответ, чтобы соединение и service worker расширения не засыпали
+      // Keep-alive по потоку: раз в 15 сек пишем строку в ответ, чтобы соединение не рвалось
       const KEEPALIVE_INTERVAL_MS = 15000;
       const keepAliveInterval = setInterval(() => {
         if (!res.writableEnded) {
-          res.write(JSON.stringify({ keepalive: true }) + "\n");
-          res.flush?.();
+          const line = JSON.stringify({ keepalive: true }) + "\n";
+          if (typeof (res as any).cork === "function") (res as any).cork();
+          res.write(line);
+          flushRes();
         }
       }, KEEPALIVE_INTERVAL_MS);
 
@@ -90,7 +100,10 @@ export class UploadController {
 
       const bodySize = JSON.stringify(parsedData).length;
       console.log(`📤 Отправляем ответ клиенту, размер data: ${bodySize} символов`);
-      res.write(JSON.stringify({ done: true, data: parsedData }) + "\n");
+      const finalLine = JSON.stringify({ done: true, data: parsedData }) + "\n";
+      if (typeof (res as any).cork === "function") (res as any).cork();
+      res.write(finalLine);
+      flushRes();
       res.end();
     } catch (error) {
       console.error("❌ Ошибка обработки Base64 PDF:", error);
