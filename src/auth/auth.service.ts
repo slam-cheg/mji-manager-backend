@@ -13,6 +13,7 @@ import { IUserResponse } from "./auth.types";
 import { IRegisterUserDTO } from "./dto/register-user.dto";
 import { ICreateUserDTO } from "../user/dto/create-user.dto";
 import { keygen } from "src/utils/keygen";
+import sendMail from "../utils/mailer";
 
 @Injectable()
 export class AuthService {
@@ -177,6 +178,33 @@ export class AuthService {
     };
 
     await this.userService.createUser(newUser);
+
+    // Отправка регистрационного ключа на почту клиента (если указан email)
+    const email = registerDTO.email?.trim();
+    if (email) {
+      try {
+        await sendMail({
+          email,
+          theme: "Регистрационный ключ активации",
+          message: `Здравствуйте. Ваш ключ активации аккаунта <strong>${login}</strong>: <br><br><strong>${activationKey}</strong><br><br>Введите его на странице активации для завершения регистрации.`,
+        });
+        console.log(`Письмо с ключом активации отправлено на ${email}`);
+      } catch (err) {
+        console.error("Ошибка отправки письма с ключом активации:", err);
+        writeLog(
+          {
+            status: `Регистрация ${login} успешна, но не удалось отправить ключ на ${email}`,
+            error: err instanceof Error ? err.message : String(err),
+            timeStamp: timeStamp(),
+          },
+          "RegistrationMailError",
+        );
+      }
+    } else {
+      console.log(
+        `Регистрация ${login}: email не указан, ключ не отправляется на почту`,
+      );
+    }
 
     const response = {
       status: `Регистрация аккаунта ${login} завершилась успешно`,

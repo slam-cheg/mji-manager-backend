@@ -1,4 +1,10 @@
-import { IsString, IsNotEmpty, MinLength } from "class-validator";
+import {
+  IsString,
+  IsNotEmpty,
+  MinLength,
+  IsEmail,
+  IsOptional,
+} from "class-validator";
 
 export class IRegisterUserDTO {
   @IsString()
@@ -11,5 +17,10 @@ export class IRegisterUserDTO {
   password: string;
 
   @IsString()
+  @IsOptional()
   fio?: string; // ФИО не обязательно
+
+  @IsEmail()
+  @IsOptional()
+  email?: string; // Почта для отправки регистрационного ключа
 }
