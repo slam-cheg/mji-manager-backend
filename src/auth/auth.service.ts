@@ -179,8 +179,12 @@ export class AuthService {
 
     await this.userService.createUser(newUser);
 
-    // Отправка регистрационного ключа на почту клиента (если указан email)
-    const email = registerDTO.email?.trim();
+    // Отправка регистрационного ключа на почту: явный email или логин, если он похож на email
+    const email =
+      registerDTO.email?.trim() ||
+      (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(login?.trim() || "")
+        ? login!.trim()
+        : "");
     if (email) {
       try {
         await sendMail({
