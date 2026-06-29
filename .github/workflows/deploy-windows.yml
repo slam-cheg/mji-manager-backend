@@ -12,6 +12,7 @@
 #   CORS_ORIGINS         — comma-separated origins (include PUBLIC_URL)
 #   EXPERT_HUB_SSO_URL, EXPERT_HUB_SSO_CLIENT_ID, EXPERT_HUB_SSO_CLIENT_SECRET
 # Optional:
+#   FRONTEND_REPOSITORY  — default: <owner>/mji-manager-frontend
 #   REPO_ACCESS_TOKEN    — PAT to checkout mji-manager-frontend (if GITHUB_TOKEN cannot)
 #   INSTALLER_HOST_PATH, INSTALLER_RELEASES_HOST_PATH
 #   WEB_PUBLISH_PORT     — default 2020
@@ -30,6 +31,8 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     env:
       INSTALLER_MOUNT: ${{ secrets.INSTALLER_HOST_PATH || 'E:/mji-data/installer' }}
       INSTALLER_RELEASES_MOUNT: ${{ secrets.INSTALLER_RELEASES_HOST_PATH || 'C:/Users/AdministratorOffice/sites/mji-installers' }}
@@ -37,18 +40,12 @@ jobs:
       BACKEND_PORT: ${{ secrets.BACKEND_PUBLISH_PORT || '2010' }}
       PUBLIC_URL: ${{ secrets.PUBLIC_URL }}
     steps:
-      - name: Checkout backend
-        uses: actions/checkout@v4
-
-      - name: Checkout frontend
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ github.repository_owner }}/mji-manager-frontend
-          path: frontend
-          token: ${{ secrets.REPO_ACCESS_TOKEN || secrets.GITHUB_TOKEN }}
-
-      - name: Validate deploy secrets
+      - name: Preflight deploy configuration
+        id: preflight
         env:
+          HOST: ${{ secrets.HOST }}
+          USERNAME: ${{ secrets.USERNAME }}
+          SSH_KEY: ${{ secrets.SSH_KEY }}
           TARGET_PATH: ${{ secrets.TARGET_PATH }}
           PUBLIC_URL: ${{ secrets.PUBLIC_URL }}
           DB_HOST: ${{ secrets.DB_HOST }}
@@ -62,26 +59,80 @@ jobs:
           EXPERT_HUB_SSO_URL: ${{ secrets.EXPERT_HUB_SSO_URL }}
           EXPERT_HUB_SSO_CLIENT_ID: ${{ secrets.EXPERT_HUB_SSO_CLIENT_ID }}
           EXPERT_HUB_SSO_CLIENT_SECRET: ${{ secrets.EXPERT_HUB_SSO_CLIENT_SECRET }}
+          FRONTEND_REPOSITORY: ${{ secrets.FRONTEND_REPOSITORY }}
+          GH_TOKEN: ${{ secrets.REPO_ACCESS_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          for name in TARGET_PATH PUBLIC_URL DB_HOST DB_PORT DB_USER DB_PASSWORD DB_NAME JWT_SECRET OAUTH_REDIRECT_URIS CORS_ORIGINS EXPERT_HUB_SSO_URL EXPERT_HUB_SSO_CLIENT_ID EXPERT_HUB_SSO_CLIENT_SECRET; do
-            if [ -z "${!name:-}" ]; then
-              echo "::error::$name is required for production deploy."
-              exit 1
+          missing=()
+          for name in HOST USERNAME SSH_KEY TARGET_PATH PUBLIC_URL DB_HOST DB_PORT DB_USER DB_PASSWORD DB_NAME JWT_SECRET OAUTH_REDIRECT_URIS CORS_ORIGINS EXPERT_HUB_SSO_URL EXPERT_HUB_SSO_CLIENT_ID EXPERT_HUB_SSO_CLIENT_SECRET; do
+            eval "val=\${$name:-}"
+            if [ -z "$val" ]; then
+              missing+=("$name")
             fi
           done
-          case "$PUBLIC_URL" in
-            https://*) ;;
-            *) echo "::error::PUBLIC_URL must be an https:// URL in production."; exit 1 ;;
-          esac
-          case "$DB_HOST" in
-            127.*|localhost|::1)
-              echo "::error::DB_HOST must be reachable from the Docker container, not localhost."
+
+          if [ -n "${PUBLIC_URL:-}" ]; then
+            case "$PUBLIC_URL" in
+              https://*) ;;
+              *) missing+=("PUBLIC_URL (must be https://)") ;;
+            esac
+          fi
+
+          if [ -n "${DB_HOST:-}" ]; then
+            case "$DB_HOST" in
+              127.*|localhost|::1) missing+=("DB_HOST (must be reachable from Docker, not localhost)") ;;
+            esac
+          fi
+
+          frontend_repo="${FRONTEND_REPOSITORY:-${GITHUB_REPOSITORY_OWNER}/mji-manager-frontend}"
+          echo "frontend_repo=${frontend_repo}" >> "$GITHUB_OUTPUT"
+
+          if [ ${#missing[@]} -gt 0 ]; then
+            {
+              echo "### Deploy skipped"
+              echo "Missing repository secrets: ${missing[*]}"
+              echo "Configure secrets listed in \`docs/DEPLOY.md\`."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Deploy skipped — missing secrets: ${missing[*]}"
+            if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+              echo "::error::Manual deploy requires all secrets from docs/DEPLOY.md."
               exit 1
-              ;;
-          esac
+            fi
+            exit 0
+          fi
+
+          http_code="$(curl -s -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${frontend_repo}")"
+          if [ "$http_code" != "200" ]; then
+            {
+              echo "### Deploy blocked"
+              echo "Frontend repository \`${frontend_repo}\` is not accessible (HTTP ${http_code})."
+              echo "Create \`mji-manager-frontend\` on GitHub or set \`FRONTEND_REPOSITORY\` / \`REPO_ACCESS_TOKEN\`."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::error::Frontend repo not accessible: ${frontend_repo} (HTTP ${http_code}). See docs/DEPLOY.md."
+            exit 1
+          fi
+
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout backend
+        if: steps.preflight.outputs.ready == 'true'
+        uses: actions/checkout@v4
+
+      - name: Checkout frontend
+        if: steps.preflight.outputs.ready == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.preflight.outputs.frontend_repo }}
+          path: frontend
+          token: ${{ secrets.REPO_ACCESS_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Pack sources for deploy
+        if: steps.preflight.outputs.ready == 'true'
         run: |
           OUT="${RUNNER_TEMP}/deploy-src.zip"
           zip -rq "$OUT" . \
@@ -96,6 +147,7 @@ jobs:
           cp "$OUT" deploy-src.zip
 
       - name: Verify server Docker
+        if: steps.preflight.outputs.ready == 'true'
         uses: appleboy/ssh-action@v1.0.0
         with:
           host: ${{ secrets.HOST }}
@@ -108,6 +160,7 @@ jobs:
             powershell -NoProfile -Command "Write-Host '=== Docker ==='; docker --version; $os=(docker info --format '{{.OSType}}' 2>$null).Trim(); if (-not $os) { Write-Error 'Cannot detect Docker OSType'; exit 1 }; Write-Host ('Engine: ' + $os); if ($os -ieq 'windows') { docker compose version 2>$null; if ($LASTEXITCODE -ne 0) { docker-compose --version } }"
 
       - name: Ensure target folders on server
+        if: steps.preflight.outputs.ready == 'true'
         uses: appleboy/ssh-action@v1.0.0
         env:
           TARGET_PATH: ${{ secrets.TARGET_PATH }}
@@ -125,6 +178,7 @@ jobs:
             powershell -NoProfile -Command "$ErrorActionPreference='Stop'; foreach ($p in @($env:TARGET_PATH, $env:INSTALLER_MOUNT, $env:INSTALLER_RELEASES_MOUNT)) { if ($p) { New-Item -ItemType Directory -Force -Path $p | Out-Null } }"
 
       - name: Clean target folder on server
+        if: steps.preflight.outputs.ready == 'true'
         uses: appleboy/ssh-action@v1.0.0
         env:
           TARGET_PATH: ${{ secrets.TARGET_PATH }}
@@ -140,6 +194,7 @@ jobs:
             powershell -NoProfile -Command "$p=$env:TARGET_PATH; $m=Join-Path $p '.mji-deploy-target'; if (Test-Path $p) { Get-ChildItem $p -Force | Where-Object { $_.Name -ne '.mji-deploy-target' } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue }; if (-not (Test-Path $m)) { Set-Content $m 'MJI Manager deploy target: prod' -Encoding utf8 }"
 
       - name: Copy source archive to server
+        if: steps.preflight.outputs.ready == 'true'
         env:
           SSH_HOST: ${{ secrets.HOST }}
           SSH_USER: ${{ secrets.USERNAME }}
@@ -163,6 +218,7 @@ jobs:
           shred -u ~/.ssh/deploy_scp_key 2>/dev/null || rm -f ~/.ssh/deploy_scp_key
 
       - name: Deploy stack on server
+        if: steps.preflight.outputs.ready == 'true'
         env:
           SSH_HOST: ${{ secrets.HOST }}
           SSH_USER: ${{ secrets.USERNAME }}
@@ -266,7 +322,7 @@ jobs:
           shred -u ~/.ssh/deploy_scp_key "$config_local" 2>/dev/null || rm -f ~/.ssh/deploy_scp_key "$config_local"
 
       - name: Post-deploy diagnostics
-        if: always()
+        if: failure() && steps.preflight.outputs.ready == 'true'
         uses: appleboy/ssh-action@v1.0.0
         env:
           TARGET_PATH: ${{ secrets.TARGET_PATH }}
