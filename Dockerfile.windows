@@ -1,0 +1,38 @@
+# escape=`
+# MJI Manager backend — Windows container (LTSC 2019, Node 20).
+# Build: docker build -f Dockerfile.windows -t mji-manager-backend .
+ARG WINDOWS_VERSION=ltsc2019
+ARG NODE_VERSION=20.19.5
+
+FROM mcr.microsoft.com/windows/servercore:${WINDOWS_VERSION} AS node-base
+ARG NODE_VERSION
+SHELL ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", "$ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue';"]
+ENV NODE_HOME=C:\nodejs
+ENV PATH=C:\nodejs;C:\Windows\system32;C:\Windows;C:\Windows\System32\WindowsPowerShell\v1.0\
+RUN [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; `
+    $zipPath = 'C:\nodejs.zip'; `
+    $nodeArchive = ('node-v{0}-win-x64.zip' -f $env:NODE_VERSION); `
+    $nodeDir = ('C:\node-v{0}-win-x64' -f $env:NODE_VERSION); `
+    Invoke-WebRequest -UseBasicParsing -Uri ('https://nodejs.org/dist/v{0}/{1}' -f $env:NODE_VERSION, $nodeArchive) -OutFile $zipPath; `
+    Expand-Archive -Path $zipPath -DestinationPath 'C:\'; `
+    Move-Item -Path $nodeDir -Destination $env:NODE_HOME; `
+    Remove-Item -Path $zipPath -Force; `
+    node --version; `
+    npm --version
+
+FROM node-base AS runner
+
+WORKDIR C:/app
+
+ENV NODE_ENV=production
+ENV PORT=2010
+ENV HOST=0.0.0.0
+
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
+
+COPY . .
+
+EXPOSE 2010
+
+CMD ["node", "prod-server.js"]

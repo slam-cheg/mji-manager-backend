@@ -10,6 +10,7 @@
 	"algorythms": false,
 	"parser": true,
 	"parserPDF": true,
+	"useAI": true,
 	"names": {
 		"searchAllInputs": "Поиск всех полей ввода на странице",
 		"saveData": "Копирование отчета",
@@ -21,6 +22,7 @@
 		"setRatings": "Валидация полей процентов и оценок",
 		"algorythms": "Алгоритмы для полей «Все элементы»",
 		"parser": "Парсер Управляющих компаний",
-		"parserPDF": "Парсер PDF"
+		"parserPDF": "Парсер PDF",
+		"useAI": "AI обработка (перефразирование)"
 	}
 }

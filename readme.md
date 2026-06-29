@@ -11,7 +11,4 @@
 
 
 На доработку:
-1. activeFunctions - необходимо перенести в БД
-2. defects - необходимо перенести в БД
-3. rates - необходимо перенести в БД
-4. representatives - необходимо перенести в БД
+- UI в админке для редактирования rates / representatives (API готово: `/api/save-rates`, `/api/save-representatives`)

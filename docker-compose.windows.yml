@@ -1,0 +1,78 @@
+# MJI Manager — production stack for Windows containers (Server 2019 LTSC)
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.windows
+    image: mji-manager-backend:windows-ltsc2019
+    restart: unless-stopped
+    profiles: [prod]
+    environment:
+      NODE_ENV: production
+      PORT: 2010
+      HOST: 0.0.0.0
+      DB_HOST: ${DB_HOST:?DB_HOST is required; use PostgreSQL host reachable from the container, not 127.0.0.1}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USER: ${DB_USER:?DB_USER is required}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      DB_NAME: ${DB_NAME:?DB_NAME is required}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      OAUTH_REDIRECT_URIS: ${OAUTH_REDIRECT_URIS:?OAUTH_REDIRECT_URIS is required}
+      CORS_ORIGINS: ${CORS_ORIGINS:?CORS_ORIGINS is required}
+      AUTH_COOKIE_SAMESITE: ${AUTH_COOKIE_SAMESITE:-lax}
+      AUTH_CROSS_ORIGIN_COOKIES: ${AUTH_CROSS_ORIGIN_COOKIES:-false}
+      EXPERT_HUB_SSO_URL: ${EXPERT_HUB_SSO_URL:?EXPERT_HUB_SSO_URL is required}
+      EXPERT_HUB_SSO_CLIENT_ID: ${EXPERT_HUB_SSO_CLIENT_ID:?EXPERT_HUB_SSO_CLIENT_ID is required}
+      EXPERT_HUB_SSO_CLIENT_SECRET: ${EXPERT_HUB_SSO_CLIENT_SECRET:?EXPERT_HUB_SSO_CLIENT_SECRET is required}
+      EXPERT_HUB_FETCH_TIMEOUT_MS: ${EXPERT_HUB_FETCH_TIMEOUT_MS:-30000}
+      INSTALLER_FILE_PATH: ${INSTALLER_FILE_PATH:-C:/app/installer/MJI-manager.exe}
+      INSTALLER_RELEASES_DIR: ${INSTALLER_RELEASES_DIR:-C:/app/installer/releases}
+    volumes:
+      - ${INSTALLER_HOST_PATH:-E:/mji-data/installer}:C:/app/installer:ro
+      - ${INSTALLER_RELEASES_HOST_PATH:-C:/Users/AdministratorOffice/sites/mji-installers}:C:/app/installer/releases
+    ports:
+      - '${BACKEND_PUBLISH_PORT:-2010}:2010'
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "require('http').get('http://127.0.0.1:2010/api/health',(r)=>{process.exit(r.statusCode===200?0:1)}).on('error',()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 90s
+    networks:
+      - mji
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: dockerfile.windows
+      args:
+        BUILD_SHA: ${BUILD_SHA:-dev}
+        API_URL: ${API_URL:-http://backend:2010}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-}
+        NEXT_PUBLIC_EXPERT_HUB_SSO_URL: ${NEXT_PUBLIC_EXPERT_HUB_SSO_URL:-}
+        NEXT_PUBLIC_EXPERT_HUB_SSO_CLIENT_ID: ${NEXT_PUBLIC_EXPERT_HUB_SSO_CLIENT_ID:-}
+    image: mji-manager-frontend:windows-ltsc2019
+    restart: unless-stopped
+    profiles: [prod]
+    environment:
+      NODE_ENV: production
+      PORT: 2020
+      HOSTNAME: 0.0.0.0
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - '${WEB_PUBLISH_PORT:-2020}:2020'
+    networks:
+      - mji
+
+networks:
+  mji:
+    driver: nat

@@ -25,7 +25,7 @@ export const UserData = (req, res) => {
 
 		accountInfo.fio = resPromise.fio;
 		accountInfo.login = resPromise.login;
-		accountInfo.isAdmin = resPromise.isAdmin;
+		accountInfo.isAdmin = resPromise.isadmin ?? resPromise.isAdmin;
 		accountInfo.activated = resPromise.activated;
 
 		writeLog(accountInfo, "getAccountInfo");

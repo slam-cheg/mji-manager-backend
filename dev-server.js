@@ -1,11 +1,13 @@
+import "dotenv/config";
 import { app } from "./server.js";
 import { ServerConfig } from "./config.js";
 
-// Запуск сервера Node.JS
-app.listen(ServerConfig.address.dev.port, (err) => {
-	if (err) {
-		console.log(err);
-	} else {
-		console.log(`Тестовый сервер запущен на адресе http://mjimanager.ru:${ServerConfig.address.dev.port}`);
-	}
+const { ip, port } = ServerConfig.address.dev;
+
+app.listen(port, ip, (err) => {
+  if (err) {
+    console.error(err);
+    process.exit(1);
+  }
+  console.log(`Dev server listening on http://${ip}:${port}`);
 });

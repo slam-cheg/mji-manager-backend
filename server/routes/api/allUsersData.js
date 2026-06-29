@@ -1,32 +1,39 @@
 import { getAllUsersDB } from "../../dataBase/getAllUsersDB.js";
-import fs from "fs";
+import { getFunctionsDocument } from "../../dataBase/appData.service.js";
+import { timeStamp } from "../../utils/timeStamp.js";
+import { writeLog } from "../../dataBase/writeLog.js";
 
-export const AllUsersData = (req, res) => {
-	const login = req.body.login;
-	const resData = getAllUsersDB();
-	const functions = JSON.parse(fs.readFileSync("./appConfig/appFlags.json", "utf-8"));
-	const result = {
-		staffList: "",
-		functionsList: functions,
-	};
-	const getAdminInfo = {
-		status: `Ошибка получения данных о правах пользователя.`,
-		login: login,
-		boolean: false,
-		timeStamp: timeStamp(),
-	};
-	resData.then((resPromise) => {
-		if (resPromise === undefined) {
-			writeLog(getAdminInfo, "getAdminInfo");
-			res.send(result).end();
-		}
+export const AllUsersData = async (req, res) => {
+  const login = req.body.login;
+  const functionsList = await getFunctionsDocument();
+  const result = {
+    staffList: "",
+    functionsList,
+  };
+  const getAdminInfo = {
+    status: `Ошибка получения данных о правах пользователя.`,
+    login,
+    boolean: false,
+    timeStamp: timeStamp(),
+  };
 
-		getAdminInfo.status = `Данные о правах пользователя успешно получены.`;
-		getAdminInfo.boolean = true;
+  try {
+    const staffList = await getAllUsersDB();
+    if (!staffList) {
+      writeLog(getAdminInfo, "getAdminInfo");
+      res.send(result).end();
+      return;
+    }
 
-		writeLog(getAdminInfo, "getAdminInfo");
+    getAdminInfo.status = `Данные о правах пользователя успешно получены.`;
+    getAdminInfo.boolean = true;
+    writeLog(getAdminInfo, "getAdminInfo");
 
-		result.staffList = resPromise;
-		res.send(result).end();
-	});
+    result.staffList = staffList;
+    res.send(result).end();
+  } catch (error) {
+    console.error("AllUsersData error:", error);
+    writeLog(getAdminInfo, "getAdminInfo");
+    res.status(500).send({ error: "Failed to load users data" }).end();
+  }
 };

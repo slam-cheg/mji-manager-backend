@@ -1,23 +1,30 @@
-import fs from "fs";
+import { updateFunctionFlags } from "../../dataBase/appData.service.js";
 import { timeStamp } from "../../utils/timeStamp.js";
 import { writeLog } from "../../dataBase/writeLog.js";
 
-export const ActiveFunctions = (req, res) => {
-	if (!req.body) {
-		res.sendStatus(400).end();
-	}
+export const ActiveFunctions = async (req, res) => {
+  if (!req.body) {
+    res.sendStatus(400).end();
+    return;
+  }
 
-	const chahgingFunctons = {
-		status: `Работа функций не изменена. Ошибка.`,
-		boolean: false,
-		timeStamp: timeStamp(),
-	};
+  const changingFunctions = {
+    status: `Работа функций не изменена. Ошибка.`,
+    boolean: false,
+    timeStamp: timeStamp(),
+  };
 
-	fs.writeFileSync("../../appData/activeFuntions.json", JSON.stringify(req.body.functions, null, 2));
+  try {
+    await updateFunctionFlags(req.body.functions ?? {});
 
-	chahgingFunctons.status = `Работа функций успешно изменена.`;
-	chahgingFunctons.boolean = true;
+    changingFunctions.status = `Работа функций успешно изменена.`;
+    changingFunctions.boolean = true;
 
-	writeLog(chahgingFunctons, "changingFunctions");
-	res.send({ Success: true }).end();
+    writeLog(changingFunctions, "changingFunctions");
+    res.send({ Success: true }).end();
+  } catch (error) {
+    console.error("ActiveFunctions error:", error);
+    writeLog(changingFunctions, "changingFunctions");
+    res.status(500).send({ Success: false }).end();
+  }
 };
