@@ -1,27 +1,23 @@
-# Only one deploy at a time (concurrency group).
-# Deploy MJI Manager (backend + frontend) to Windows Server via SSH + docker compose.
-# Pattern: AutoPZV deploy.yml — zip sources, SCP to server :2222, build on server.
+# Deploy MJI Manager backend to Windows Server via SSH + docker compose.
+# Pattern: archive-backend deploy-windows.yml — zip sources, SCP :2222, build on server.
 #
-# Shared secrets (corporate-app / archive):
+# SSH: port 2222.
+# Secrets:
 #   HOST, USERNAME, SSH_KEY
-# MJI Manager secrets:
-#   TARGET_PATH          — e.g. C:/Users/AdministratorOffice/sites/mji-manager
-#   PUBLIC_URL           — https://mji.sste.ru
+#   TARGET_PATH — e.g. C:/Users/AdministratorOffice/sites/mji-manager-backend
+#   PUBLIC_URL — https://mji.sste.ru (CORS)
 #   DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME
 #   JWT_SECRET
-#   OAUTH_REDIRECT_URIS  — comma-separated ExpertHub callback URLs
-#   CORS_ORIGINS         — comma-separated origins (include PUBLIC_URL)
+#   OAUTH_REDIRECT_URIS, CORS_ORIGINS
 #   EXPERT_HUB_SSO_URL, EXPERT_HUB_SSO_CLIENT_ID, EXPERT_HUB_SSO_CLIENT_SECRET
 # Optional:
-#   REPO_ACCESS_TOKEN    — PAT to checkout mji-manager-frontend (if GITHUB_TOKEN cannot)
 #   INSTALLER_HOST_PATH, INSTALLER_RELEASES_HOST_PATH
-#   WEB_PUBLISH_PORT     — default 2020
 #   BACKEND_PUBLISH_PORT — default 2010
-#   WINDOWS_HOST_IP      — IPv4 override for frontend→backend routing on Windows NAT
-#   API_URL              — override frontend build-time API_URL (default auto from host IP)
-#   NEXT_PUBLIC_EXPERT_HUB_SSO_URL, NEXT_PUBLIC_EXPERT_HUB_SSO_CLIENT_ID
+#
+# Container: mji-manager-backend on net-mji, port 2010.
+# Frontend deploy (separate repo) joins the same net-mji network.
 
-name: Deploy MJI Manager (Windows)
+name: Deploy Backend (Windows)
 
 on:
   push:
@@ -29,7 +25,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: deploy-mji-manager-windows
+  group: deploy-mji-manager-backend-windows
   cancel-in-progress: false
 
 jobs:
@@ -38,19 +34,10 @@ jobs:
     env:
       INSTALLER_MOUNT: ${{ secrets.INSTALLER_HOST_PATH || 'E:/mji-data/installer' }}
       INSTALLER_RELEASES_MOUNT: ${{ secrets.INSTALLER_RELEASES_HOST_PATH || 'C:/Users/AdministratorOffice/sites/mji-installers' }}
-      WEB_PORT: ${{ secrets.WEB_PUBLISH_PORT || '2020' }}
       BACKEND_PORT: ${{ secrets.BACKEND_PUBLISH_PORT || '2010' }}
-      PUBLIC_URL: ${{ secrets.PUBLIC_URL }}
     steps:
       - name: Checkout backend
         uses: actions/checkout@v4
-
-      - name: Checkout frontend
-        uses: actions/checkout@v4
-        with:
-          repository: eternumart/mji-manager-frontend
-          path: frontend
-          token: ${{ secrets.REPO_ACCESS_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Validate deploy secrets
         env:
@@ -86,7 +73,7 @@ jobs:
               ;;
           esac
 
-      - name: Pack sources for deploy
+      - name: Pack backend sources for deploy
         run: |
           OUT="${RUNNER_TEMP}/deploy-src.zip"
           zip -rq "$OUT" . \
@@ -94,8 +81,7 @@ jobs:
             -x '.env' \
             -x '.env.*' \
             -x 'node_modules/*' \
-            -x 'frontend/node_modules/*' \
-            -x 'frontend/.next/*' \
+            -x 'dist/*' \
             -x 'installer/*.exe' \
             -x '.github/*'
           cp "$OUT" deploy-src.zip
@@ -110,7 +96,7 @@ jobs:
           timeout: 3m
           command_timeout: 60m
           script: |
-            powershell -NoProfile -Command "Write-Host '=== Docker ==='; docker --version; $os=(docker info --format '{{.OSType}}' 2>$null).Trim(); if (-not $os) { Write-Error 'Cannot detect Docker OSType'; exit 1 }; Write-Host ('Engine: ' + $os); if ($os -ieq 'windows') { docker compose version 2>$null; if ($LASTEXITCODE -ne 0) { docker-compose --version } }"
+            powershell -NoProfile -Command "Write-Host '=== Docker ==='; docker --version; Write-Host '=== Docker network net-mji ==='; if (-not (docker network ls -q -f name='^net-mji$')) { docker network create -d nat net-mji; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } }; docker network ls --filter name=net-mji"
 
       - name: Ensure target folders on server
         uses: appleboy/ssh-action@v1.0.0
@@ -134,7 +120,7 @@ jobs:
           timeout: 3m
           command_timeout: 60m
           script: |
-            powershell -NoProfile -Command "$p='${{ secrets.TARGET_PATH }}'; $m=Join-Path $p '.mji-deploy-target'; if (Test-Path $p) { Get-ChildItem $p -Force | Where-Object { $_.Name -ne '.mji-deploy-target' } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue }; if (-not (Test-Path $m)) { Set-Content $m 'MJI Manager deploy target: prod' -Encoding utf8 }"
+            powershell -NoProfile -Command "$p='${{ secrets.TARGET_PATH }}'; $m=Join-Path $p '.mji-deploy-target'; if (Test-Path $p) { Get-ChildItem $p -Force | Where-Object { $_.Name -ne '.mji-deploy-target' } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue }; if (-not (Test-Path $m)) { Set-Content $m 'MJI Manager backend deploy target: prod' -Encoding utf8 }"
 
       - name: Copy source archive to server
         env:
@@ -159,7 +145,7 @@ jobs:
             deploy-src.zip "${SSH_USER}@${SSH_HOST}:${dest}"
           shred -u ~/.ssh/deploy_scp_key 2>/dev/null || rm -f ~/.ssh/deploy_scp_key
 
-      - name: Deploy stack on server
+      - name: Deploy backend on server
         env:
           SSH_HOST: ${{ secrets.HOST }}
           SSH_USER: ${{ secrets.USERNAME }}
@@ -188,12 +174,6 @@ jobs:
           INSTALLER_MOUNT: ${{ env.INSTALLER_MOUNT }}
           INSTALLER_RELEASES_MOUNT: ${{ env.INSTALLER_RELEASES_MOUNT }}
           BACKEND_PORT: ${{ env.BACKEND_PORT }}
-          WEB_PORT: ${{ env.WEB_PORT }}
-          WINDOWS_HOST_IP: ${{ secrets.WINDOWS_HOST_IP }}
-          API_URL: ${{ secrets.API_URL }}
-          NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
-          NEXT_PUBLIC_EXPERT_HUB_SSO_URL: ${{ secrets.NEXT_PUBLIC_EXPERT_HUB_SSO_URL }}
-          NEXT_PUBLIC_EXPERT_HUB_SSO_CLIENT_ID: ${{ secrets.NEXT_PUBLIC_EXPERT_HUB_SSO_CLIENT_ID }}
         run: |
           set -euo pipefail
           install -m 700 -d ~/.ssh
@@ -214,19 +194,16 @@ jobs:
               'EXPERT_HUB_SSO_URL', 'EXPERT_HUB_SSO_CLIENT_ID', 'EXPERT_HUB_SSO_CLIENT_SECRET',
               'EXPERT_HUB_FETCH_TIMEOUT_MS', 'PUBLIC_URL',
               'INSTALLER_HOST_PATH', 'INSTALLER_RELEASES_HOST_PATH',
-              'BACKEND_PUBLISH_PORT', 'WEB_PUBLISH_PORT',
-              'WINDOWS_HOST_IP', 'API_URL',
-              'NEXT_PUBLIC_API_URL', 'NEXT_PUBLIC_EXPERT_HUB_SSO_URL', 'NEXT_PUBLIC_EXPERT_HUB_SSO_CLIENT_ID',
+              'BACKEND_PUBLISH_PORT',
           ]
           config = {k: os.environ.get(k, '') for k in keys}
           config['TARGET_PATH'] = os.environ.get('REMOTE_DIR', '')
           config['RUN_ID'] = os.environ.get('RUN_ID', '')
           config['BUILD_SHA'] = os.environ.get('GITHUB_SHA', 'deploy')
-          config['COMPOSE_PROJECT'] = 'mji-manager'
+          config['COMPOSE_PROJECT'] = 'mji-manager-backend'
           config['INSTALLER_HOST_PATH'] = os.environ.get('INSTALLER_MOUNT', '')
           config['INSTALLER_RELEASES_HOST_PATH'] = os.environ.get('INSTALLER_RELEASES_MOUNT', '')
           config['BACKEND_PUBLISH_PORT'] = os.environ.get('BACKEND_PORT', '2010')
-          config['WEB_PUBLISH_PORT'] = os.environ.get('WEB_PORT', '2020')
           required = [
               'TARGET_PATH', 'RUN_ID', 'PUBLIC_URL', 'DB_HOST', 'DB_USER', 'DB_PASSWORD', 'DB_NAME',
               'JWT_SECRET', 'OAUTH_REDIRECT_URIS', 'CORS_ORIGINS',
@@ -244,7 +221,6 @@ jobs:
           rd="${rd%/}"
           remote_script="${rd}/.mji-deploy-${run_tag}.ps1"
           remote_config="${rd}/.mji-deploy-${run_tag}.json"
-          ps_path="${rd//\'/\'\'}"
 
           scp -i ~/.ssh/deploy_scp_key -P 2222 -o ConnectTimeout=180 -o StrictHostKeyChecking=accept-new \
             scripts/deploy/deploy-windows.ps1 "${SSH_USER}@${SSH_HOST}:${remote_script}"
@@ -273,4 +249,4 @@ jobs:
           timeout: 3m
           command_timeout: 60m
           script: |
-            powershell -NoProfile -Command "$ErrorActionPreference='Continue'; Write-Host '=== docker ps ==='; docker ps -a --filter 'label=com.docker.compose.project=mji-manager' --format 'table {{.Names}}\t{{.Status}}'; Set-Location '${{ secrets.TARGET_PATH }}'; $m=Join-Path '${{ secrets.TARGET_PATH }}' '.mji-last-deploy.txt'; if (Test-Path $m) { Write-Host ('marker: ' + (Get-Content $m -Raw)) } else { Write-Error 'Deploy marker missing'; exit 1 }"
+            powershell -NoProfile -Command "$ErrorActionPreference='Continue'; Write-Host '=== docker ps ==='; docker ps -a --filter 'name=^mji-manager-backend$' --format 'table {{.Names}}\t{{.Status}}'; Set-Location '${{ secrets.TARGET_PATH }}'; $m=Join-Path '${{ secrets.TARGET_PATH }}' '.mji-last-deploy.txt'; if (Test-Path $m) { Write-Host ('marker: ' + (Get-Content $m -Raw)) } else { Write-Error 'Deploy marker missing'; exit 1 }"

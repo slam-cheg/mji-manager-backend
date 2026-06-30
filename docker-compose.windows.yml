@@ -1,10 +1,12 @@
-# MJI Manager — production stack for Windows containers (Server 2019 LTSC)
+# MJI Manager backend — Windows containers (Server 2019 LTSC), backend only.
+# Shared Docker network net-mji: frontend container reaches backend at http://mji-manager-backend:2010
 services:
   backend:
     build:
       context: .
       dockerfile: Dockerfile.windows
     image: mji-manager-backend:windows-ltsc2019
+    container_name: mji-manager-backend
     restart: unless-stopped
     profiles: [prod]
     environment:
@@ -46,33 +48,9 @@ services:
       retries: 12
       start_period: 90s
     networks:
-      - mji
-
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: dockerfile.windows
-      args:
-        BUILD_SHA: ${BUILD_SHA:-dev}
-        API_URL: ${API_URL:-http://backend:2010}
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-}
-        NEXT_PUBLIC_EXPERT_HUB_SSO_URL: ${NEXT_PUBLIC_EXPERT_HUB_SSO_URL:-}
-        NEXT_PUBLIC_EXPERT_HUB_SSO_CLIENT_ID: ${NEXT_PUBLIC_EXPERT_HUB_SSO_CLIENT_ID:-}
-    image: mji-manager-frontend:windows-ltsc2019
-    restart: unless-stopped
-    profiles: [prod]
-    environment:
-      NODE_ENV: production
-      PORT: 2020
-      HOSTNAME: 0.0.0.0
-    depends_on:
-      backend:
-        condition: service_healthy
-    ports:
-      - '${WEB_PUBLISH_PORT:-2020}:2020'
-    networks:
-      - mji
+      - net-mji
 
 networks:
-  mji:
+  net-mji:
+    name: net-mji
     driver: nat
