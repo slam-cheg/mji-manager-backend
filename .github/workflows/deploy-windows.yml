@@ -14,8 +14,8 @@
 # Optional:
 #   REPO_ACCESS_TOKEN    — PAT to checkout mji-manager-frontend (if GITHUB_TOKEN cannot)
 #   INSTALLER_HOST_PATH, INSTALLER_RELEASES_HOST_PATH
-#   WEB_PUBLISH_PORT     — default 3006 (host → container 2020)
-#   BACKEND_PUBLISH_PORT — default 2906 (host → container 2010)
+#   WEB_PUBLISH_PORT     — default 2020
+#   BACKEND_PUBLISH_PORT — default 2010
 #   WINDOWS_HOST_IP      — IPv4 override for frontend→backend routing on Windows NAT
 #   API_URL              — override frontend build-time API_URL (default auto from host IP)
 #   NEXT_PUBLIC_EXPERT_HUB_SSO_URL, NEXT_PUBLIC_EXPERT_HUB_SSO_CLIENT_ID
@@ -33,8 +33,8 @@ jobs:
     env:
       INSTALLER_MOUNT: ${{ secrets.INSTALLER_HOST_PATH || 'E:/mji-data/installer' }}
       INSTALLER_RELEASES_MOUNT: ${{ secrets.INSTALLER_RELEASES_HOST_PATH || 'C:/Users/AdministratorOffice/sites/mji-installers' }}
-      WEB_PORT: ${{ secrets.WEB_PUBLISH_PORT || '3006' }}
-      BACKEND_PORT: ${{ secrets.BACKEND_PUBLISH_PORT || '2906' }}
+      WEB_PORT: ${{ secrets.WEB_PUBLISH_PORT || '2020' }}
+      BACKEND_PORT: ${{ secrets.BACKEND_PUBLISH_PORT || '2010' }}
       PUBLIC_URL: ${{ secrets.PUBLIC_URL }}
     steps:
       - name: Checkout backend
@@ -220,8 +220,8 @@ jobs:
           config['COMPOSE_PROJECT'] = 'mji-manager'
           config['INSTALLER_HOST_PATH'] = os.environ.get('INSTALLER_MOUNT', '')
           config['INSTALLER_RELEASES_HOST_PATH'] = os.environ.get('INSTALLER_RELEASES_MOUNT', '')
-          config['BACKEND_PUBLISH_PORT'] = os.environ.get('BACKEND_PORT', '2906')
-          config['WEB_PUBLISH_PORT'] = os.environ.get('WEB_PORT', '3006')
+          config['BACKEND_PUBLISH_PORT'] = os.environ.get('BACKEND_PORT', '2010')
+          config['WEB_PUBLISH_PORT'] = os.environ.get('WEB_PORT', '2020')
           required = [
               'TARGET_PATH', 'RUN_ID', 'PUBLIC_URL', 'DB_HOST', 'DB_USER', 'DB_PASSWORD', 'DB_NAME',
               'JWT_SECRET', 'OAUTH_REDIRECT_URIS', 'CORS_ORIGINS',
