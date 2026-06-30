@@ -1,8 +1,8 @@
 # escape=`
-# MJI Manager backend — Windows container (LTSC 2019, Node 20).
+# MJI Manager backend — Windows container (LTSC 2019, Node 22).
 # Build: docker build -f Dockerfile.windows -t mji-manager-backend .
 ARG WINDOWS_VERSION=ltsc2019
-ARG NODE_VERSION=20.19.5
+ARG NODE_VERSION=22.22.0
 
 FROM mcr.microsoft.com/windows/servercore:${WINDOWS_VERSION} AS node-base
 ARG NODE_VERSION
