@@ -1,4 +1,4 @@
-param(
+﻿param(
   [Parameter(Mandatory = $true)]
   [string]$ConfigPath
 )
@@ -44,6 +44,20 @@ function Invoke-Compose {
   }
 }
 
+
+function Get-DockerNetworkLabel {
+  param([string]$NetworkName, [string]$LabelKey)
+  $json = docker network inspect $NetworkName --format '{{json .Labels}}' 2>$null
+  if ([string]::IsNullOrWhiteSpace($json) -or $json -eq 'null') { return '' }
+  try {
+    $labels = $json | ConvertFrom-Json
+    $prop = $labels.PSObject.Properties[$LabelKey]
+    if ($null -eq $prop -or $null -eq $prop.Value) { return '' }
+    return [string]$prop.Value
+  } catch {
+    return ''
+  }
+}
 function Ensure-DockerNetwork {
   param([string]$NetworkName)
 
@@ -57,8 +71,8 @@ function Ensure-DockerNetwork {
   }
 
   $containerCount = [int](docker network inspect $NetworkName --format '{{len .Containers}}' 2>$null)
-  $composeProjectLabel = (docker network inspect $NetworkName --format '{{index .Labels "com.docker.compose.project"}}' 2>$null).Trim()
-  $composeNetworkLabel = (docker network inspect $NetworkName --format '{{index .Labels "com.docker.compose.network"}}' 2>$null).Trim()
+  $composeProjectLabel = (Get-DockerNetworkLabel -NetworkName $NetworkName -LabelKey 'com.docker.compose.project').Trim()
+  $composeNetworkLabel = (Get-DockerNetworkLabel -NetworkName $NetworkName -LabelKey 'com.docker.compose.network').Trim()
   $hasBrokenComposeLabels = (-not [string]::IsNullOrWhiteSpace($composeProjectLabel)) -and [string]::IsNullOrEmpty($composeNetworkLabel)
 
   if ($hasBrokenComposeLabels -and $containerCount -eq 0) {
@@ -115,7 +129,7 @@ Expand-Archive -Path 'deploy-src.zip' -DestinationPath '.' -Force
 Remove-Item -LiteralPath 'deploy-src.zip' -Force
 
 if (-not (Test-Path -LiteralPath 'server.js')) {
-  throw 'server.js not found after extraction — check SCP copy'
+  throw 'server.js not found after extraction вЂ” check SCP copy'
 }
 
 $installerHostPath = (Get-ConfigValue -Name 'INSTALLER_HOST_PATH' -Default 'E:/mji-data/installer').Trim().Replace('\', '/').TrimEnd('/')
