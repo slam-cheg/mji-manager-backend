@@ -52,5 +52,4 @@ services:
 
 networks:
   net-mji:
-    name: net-mji
-    driver: nat
+    external: true

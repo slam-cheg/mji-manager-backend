@@ -44,6 +44,42 @@ function Invoke-Compose {
   }
 }
 
+function Ensure-DockerNetwork {
+  param([string]$NetworkName)
+
+  $exists = docker network ls -q -f "name=^${NetworkName}$"
+  if (-not $exists) {
+    Write-Host ("[deploy] Creating Docker network {0}" -f $NetworkName)
+    Invoke-StrictCommand -DisplayName ("docker network create {0}" -f $NetworkName) -Command {
+      docker network create -d nat $NetworkName
+    }
+    return
+  }
+
+  $containerCount = [int](docker network inspect $NetworkName --format '{{len .Containers}}' 2>$null)
+  $composeProjectLabel = (docker network inspect $NetworkName --format '{{index .Labels "com.docker.compose.project"}}' 2>$null).Trim()
+  $composeNetworkLabel = (docker network inspect $NetworkName --format '{{index .Labels "com.docker.compose.network"}}' 2>$null).Trim()
+  $hasBrokenComposeLabels = (-not [string]::IsNullOrWhiteSpace($composeProjectLabel)) -and [string]::IsNullOrEmpty($composeNetworkLabel)
+
+  if ($hasBrokenComposeLabels -and $containerCount -eq 0) {
+    Write-Host ("[deploy] Removing orphaned Docker network {0} (incorrect compose labels)" -f $NetworkName)
+    Invoke-StrictCommand -DisplayName ("docker network rm {0}" -f $NetworkName) -Command {
+      docker network rm $NetworkName
+    }
+    Write-Host ("[deploy] Creating Docker network {0}" -f $NetworkName)
+    Invoke-StrictCommand -DisplayName ("docker network create {0}" -f $NetworkName) -Command {
+      docker network create -d nat $NetworkName
+    }
+    return
+  }
+
+  if ($hasBrokenComposeLabels) {
+    Write-Host ("[deploy] Network {0} has incorrect compose labels but {1} container(s) attached; keeping it" -f $NetworkName, $containerCount)
+  } else {
+    Write-Host ("[deploy] Docker network {0} OK ({1} container(s) attached)" -f $NetworkName, $containerCount)
+  }
+}
+
 if (-not (Test-Path -LiteralPath $ConfigPath)) {
   throw "Deploy config file is missing: $ConfigPath"
 }
@@ -136,10 +172,7 @@ if (-not (Test-Path -LiteralPath $composeFile)) {
   throw ('Selected compose file is missing: ' + $composeFile)
 }
 
-if (-not (docker network ls -q -f name='^net-mji$')) {
-  Write-Host '[deploy] Creating Docker network net-mji'
-  Invoke-StrictCommand -DisplayName 'docker network create net-mji' -Command { docker network create -d nat net-mji }
-}
+Ensure-DockerNetwork -NetworkName 'net-mji'
 
 $envLines = New-Object System.Collections.Generic.List[string]
 foreach ($key in $envEntries.Keys) {
