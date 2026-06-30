@@ -109,10 +109,6 @@ jobs:
 
       - name: Ensure target folders on server
         uses: appleboy/ssh-action@v1.0.0
-        env:
-          TARGET_PATH: ${{ secrets.TARGET_PATH }}
-          INSTALLER_MOUNT: ${{ env.INSTALLER_MOUNT }}
-          INSTALLER_RELEASES_MOUNT: ${{ env.INSTALLER_RELEASES_MOUNT }}
         with:
           host: ${{ secrets.HOST }}
           port: 2222
@@ -120,14 +116,11 @@ jobs:
           key: ${{ secrets.SSH_KEY }}
           timeout: 3m
           command_timeout: 60m
-          envs: TARGET_PATH,INSTALLER_MOUNT,INSTALLER_RELEASES_MOUNT
           script: |
-            powershell -NoProfile -Command "$ErrorActionPreference='Stop'; foreach ($p in @($env:TARGET_PATH, $env:INSTALLER_MOUNT, $env:INSTALLER_RELEASES_MOUNT)) { if ($p) { New-Item -ItemType Directory -Force -Path $p | Out-Null } }"
+            powershell -NoProfile -Command "$ErrorActionPreference='Stop'; foreach ($p in @('${{ secrets.TARGET_PATH }}', '${{ env.INSTALLER_MOUNT }}', '${{ env.INSTALLER_RELEASES_MOUNT }}')) { if ($p) { New-Item -ItemType Directory -Force -Path $p | Out-Null } }"
 
       - name: Clean target folder on server
         uses: appleboy/ssh-action@v1.0.0
-        env:
-          TARGET_PATH: ${{ secrets.TARGET_PATH }}
         with:
           host: ${{ secrets.HOST }}
           port: 2222
@@ -135,9 +128,8 @@ jobs:
           key: ${{ secrets.SSH_KEY }}
           timeout: 3m
           command_timeout: 60m
-          envs: TARGET_PATH
           script: |
-            powershell -NoProfile -Command "$p=$env:TARGET_PATH; $m=Join-Path $p '.mji-deploy-target'; if (Test-Path $p) { Get-ChildItem $p -Force | Where-Object { $_.Name -ne '.mji-deploy-target' } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue }; if (-not (Test-Path $m)) { Set-Content $m 'MJI Manager deploy target: prod' -Encoding utf8 }"
+            powershell -NoProfile -Command "$p='${{ secrets.TARGET_PATH }}'; $m=Join-Path $p '.mji-deploy-target'; if (Test-Path $p) { Get-ChildItem $p -Force | Where-Object { $_.Name -ne '.mji-deploy-target' } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue }; if (-not (Test-Path $m)) { Set-Content $m 'MJI Manager deploy target: prod' -Encoding utf8 }"
 
       - name: Copy source archive to server
         env:
@@ -268,9 +260,6 @@ jobs:
       - name: Post-deploy diagnostics
         if: always()
         uses: appleboy/ssh-action@v1.0.0
-        env:
-          TARGET_PATH: ${{ secrets.TARGET_PATH }}
-          RUN_ID: ${{ github.run_id }}
         with:
           host: ${{ secrets.HOST }}
           port: 2222
@@ -278,6 +267,5 @@ jobs:
           key: ${{ secrets.SSH_KEY }}
           timeout: 3m
           command_timeout: 60m
-          envs: TARGET_PATH,RUN_ID
           script: |
-            powershell -NoProfile -Command "$ErrorActionPreference='Continue'; Write-Host '=== docker ps ==='; docker ps -a --filter 'label=com.docker.compose.project=mji-manager' --format 'table {{.Names}}\t{{.Status}}'; Set-Location $env:TARGET_PATH; $m=Join-Path $env:TARGET_PATH '.mji-last-deploy.txt'; if (Test-Path $m) { Write-Host ('marker: ' + (Get-Content $m -Raw)) } else { Write-Error 'Deploy marker missing'; exit 1 }"
+            powershell -NoProfile -Command "$ErrorActionPreference='Continue'; Write-Host '=== docker ps ==='; docker ps -a --filter 'label=com.docker.compose.project=mji-manager' --format 'table {{.Names}}\t{{.Status}}'; Set-Location '${{ secrets.TARGET_PATH }}'; $m=Join-Path '${{ secrets.TARGET_PATH }}' '.mji-last-deploy.txt'; if (Test-Path $m) { Write-Host ('marker: ' + (Get-Content $m -Raw)) } else { Write-Error 'Deploy marker missing'; exit 1 }"
