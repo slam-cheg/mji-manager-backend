@@ -30,13 +30,21 @@ export function clearAuthCookie(res) {
   res.clearCookie(AUTH_COOKIE_NAME, { httpOnly: true, secure, sameSite, path });
 }
 
+function isExtensionOAuthRedirectUri(redirectUri) {
+  try {
+    const url = new URL(redirectUri);
+    return url.protocol === "https:" && url.hostname.endsWith(".chromiumapp.org");
+  } catch {
+    return false;
+  }
+}
+
 function isDevOAuthRedirectUri(redirectUri) {
   try {
     const url = new URL(redirectUri);
     return (
       url.hostname === "localhost" ||
       url.hostname === "127.0.0.1" ||
-      url.hostname.endsWith(".chromiumapp.org") ||
       redirectUri.endsWith("/auth/expert-hub/callback") ||
       redirectUri.endsWith("/auth/experthub/extension-callback")
     );
@@ -46,6 +54,8 @@ function isDevOAuthRedirectUri(redirectUri) {
 }
 
 export function isAllowedOAuthRedirectUri(redirectUri) {
+  if (isExtensionOAuthRedirectUri(redirectUri)) return true;
+
   const allowed = (process.env.OAUTH_REDIRECT_URIS ?? "")
     .split(",")
     .map((uri) => uri.trim())
@@ -53,7 +63,7 @@ export function isAllowedOAuthRedirectUri(redirectUri) {
 
   if (allowed.length > 0) {
     if (allowed.includes(redirectUri)) return true;
-    // В dev разрешаем localhost/chromiumapp даже если забыли добавить в OAUTH_REDIRECT_URIS
+    // В dev разрешаем localhost даже если забыли добавить в OAUTH_REDIRECT_URIS
     if (process.env.NODE_ENV !== "production" && isDevOAuthRedirectUri(redirectUri)) return true;
     return false;
   }
