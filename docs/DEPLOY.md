@@ -17,8 +17,8 @@ Public URL: `https://mji.sste.ru` (Nginx → frontend :2020; Next rewrites `/api
 
 | Repo | Workflow | Trigger |
 |------|----------|---------|
-| `mji-manager-backend` | `deploy-windows.yml` | push `master` / `main`, manual |
-| `mji-manager-frontend` | `deploy-windows.yml` | push `main`, manual |
+| `mji-manager-backend` | `deploy-windows.yml` | **manual only** (`workflow_dispatch`) |
+| `mji-manager-frontend` | `deploy-windows.yml` | **manual only** (`workflow_dispatch`) |
 | `mji-manager-extension` | `deploy-extension.yml` | push `main` / tags, manual (installer only) |
 
 No cross-repo workflow triggers. Each repo checks out and deploys only itself.
@@ -81,6 +81,20 @@ New-Item -ItemType Directory -Force -Path 'E:\mji-data\installer'
 New-Item -ItemType Directory -Force -Path 'C:\Users\AdministratorOffice\sites\mji-installers'
 docker version
 ```
+
+
+## Agents and CI/CD
+
+Push to master/main runs **CI only** (ci.yml). Production deploy does **not** run on push.
+
+Before starting a manual deploy (workflow_dispatch), check that no deploy is already running or queued:
+
+`ash
+gh run list -R slam-cheg/mji-manager-backend --workflow deploy-windows.yml --status in_progress --status queued
+`
+
+Do **not** push a fix commit and run gh workflow run for the same deploy unless the user explicitly asked for redeploy.
+
 
 ## Deploy order
 
