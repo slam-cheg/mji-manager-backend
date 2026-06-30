@@ -6,10 +6,10 @@ Deploy pattern matches **AutoPZV** and **archive-***: GitHub Actions packs sourc
 
 | Container | Port (default) | Role |
 |-----------|----------------|------|
-| `mji-manager-backend` | 2010 | Express API, SSO, releases |
-| `mji-manager-frontend` | 2020 | Next.js standalone (public entry) |
+| `mji-manager-backend` | 2906 (host) → 2010 (container) | Express API, SSO, releases |
+| `mji-manager-frontend` | 3006 (host) → 2020 (container) | Next.js standalone (public entry) |
 
-Smoke check: `GET http://127.0.0.1:2020/api/health` (Next rewrites → backend).
+Smoke check: `GET http://127.0.0.1:3006/api/health` (Next rewrites → backend).
 
 ## Server prerequisites
 
@@ -45,7 +45,7 @@ Smoke check: `GET http://127.0.0.1:2020/api/health` (Next rewrites → backend).
 | Secret | Description |
 |--------|-------------|
 | `TARGET_PATH` | `C:/Users/.../mji-manager` |
-| `PUBLIC_URL` | `https://mjimanager.ru` |
+| `PUBLIC_URL` | `https://mji.sste.ru` |
 | `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` | PostgreSQL |
 | `JWT_SECRET` | random 32+ chars |
 | `OAUTH_REDIRECT_URIS` | ExpertHub callbacks (web + extension) |
@@ -61,10 +61,10 @@ Smoke check: `GET http://127.0.0.1:2020/api/health` (Next rewrites → backend).
 | `REPO_ACCESS_TOKEN` | PAT to read `mji-manager-frontend` from backend workflow |
 | `INSTALLER_HOST_PATH` | `E:/mji-data/installer` |
 | `INSTALLER_RELEASES_HOST_PATH` | `C:/Users/.../sites/mji-installers` |
-| `WEB_PUBLISH_PORT` | `2020` |
-| `BACKEND_PUBLISH_PORT` | `2010` |
+| `WEB_PUBLISH_PORT` | `3006` |
+| `BACKEND_PUBLISH_PORT` | `2906` |
 | `WINDOWS_HOST_IP` | auto-detected LAN IP for frontend→backend on Windows NAT |
-| `API_URL` | auto `http://<host-ip>:2010` at deploy time |
+| `API_URL` | auto `http://<host-ip>:2906` at deploy time |
 | `NEXT_PUBLIC_*` | derived from `PUBLIC_URL` / SSO secrets |
 
 Copy the same `HOST`, `USERNAME`, `SSH_KEY`, `INSTALLER_RELEASES_HOST_PATH` to **mji-manager-extension** for installer upload.
@@ -82,7 +82,7 @@ docker version
 ## Local smoke after deploy
 
 ```powershell
-Invoke-WebRequest -UseBasicParsing http://127.0.0.1:2020/api/health
+Invoke-WebRequest -UseBasicParsing http://127.0.0.1:3006/api/health
 docker compose -f docker-compose.windows.yml -p mji-manager --profile prod ps
 ```
 
