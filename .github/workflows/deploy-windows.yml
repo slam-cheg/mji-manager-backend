@@ -43,7 +43,7 @@ jobs:
       - name: Checkout frontend
         uses: actions/checkout@v4
         with:
-          repository: ${{ github.repository_owner }}/mji-manager-frontend
+          repository: eternumart/mji-manager-frontend
           path: frontend
           token: ${{ secrets.REPO_ACCESS_TOKEN || secrets.GITHUB_TOKEN }}
 
