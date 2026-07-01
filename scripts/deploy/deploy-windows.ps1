@@ -44,56 +44,6 @@ function Invoke-Compose {
   }
 }
 
-
-function Get-DockerNetworkLabel {
-  param([string]$NetworkName, [string]$LabelKey)
-  $json = docker network inspect $NetworkName --format '{{json .Labels}}' 2>$null
-  if ([string]::IsNullOrWhiteSpace($json) -or $json -eq 'null') { return '' }
-  try {
-    $labels = $json | ConvertFrom-Json
-    $prop = $labels.PSObject.Properties[$LabelKey]
-    if ($null -eq $prop -or $null -eq $prop.Value) { return '' }
-    return [string]$prop.Value
-  } catch {
-    return ''
-  }
-}
-function Ensure-DockerNetwork {
-  param([string]$NetworkName)
-
-  $exists = docker network ls -q -f "name=^${NetworkName}$"
-  if (-not $exists) {
-    Write-Host ("[deploy] Creating Docker network {0}" -f $NetworkName)
-    Invoke-StrictCommand -DisplayName ("docker network create {0}" -f $NetworkName) -Command {
-      docker network create -d nat $NetworkName
-    }
-    return
-  }
-
-  $containerCount = [int](docker network inspect $NetworkName --format '{{len .Containers}}' 2>$null)
-  $composeProjectLabel = (Get-DockerNetworkLabel -NetworkName $NetworkName -LabelKey 'com.docker.compose.project').Trim()
-  $composeNetworkLabel = (Get-DockerNetworkLabel -NetworkName $NetworkName -LabelKey 'com.docker.compose.network').Trim()
-  $hasBrokenComposeLabels = (-not [string]::IsNullOrWhiteSpace($composeProjectLabel)) -and [string]::IsNullOrEmpty($composeNetworkLabel)
-
-  if ($hasBrokenComposeLabels -and $containerCount -eq 0) {
-    Write-Host ("[deploy] Removing orphaned Docker network {0} (incorrect compose labels)" -f $NetworkName)
-    Invoke-StrictCommand -DisplayName ("docker network rm {0}" -f $NetworkName) -Command {
-      docker network rm $NetworkName
-    }
-    Write-Host ("[deploy] Creating Docker network {0}" -f $NetworkName)
-    Invoke-StrictCommand -DisplayName ("docker network create {0}" -f $NetworkName) -Command {
-      docker network create -d nat $NetworkName
-    }
-    return
-  }
-
-  if ($hasBrokenComposeLabels) {
-    Write-Host ("[deploy] Network {0} has incorrect compose labels but {1} container(s) attached; keeping it" -f $NetworkName, $containerCount)
-  } else {
-    Write-Host ("[deploy] Docker network {0} OK ({1} container(s) attached)" -f $NetworkName, $containerCount)
-  }
-}
-
 if (-not (Test-Path -LiteralPath $ConfigPath)) {
   throw "Deploy config file is missing: $ConfigPath"
 }
@@ -131,6 +81,12 @@ Remove-Item -LiteralPath 'deploy-src.zip' -Force
 if (-not (Test-Path -LiteralPath 'server.js')) {
   throw 'server.js not found after extraction вЂ” check SCP copy'
 }
+
+$networkScript = Join-Path $resolved 'scripts/deploy/docker-network.ps1'
+if (-not (Test-Path -LiteralPath $networkScript)) {
+  throw ('Missing Docker network helper: ' + $networkScript)
+}
+. $networkScript
 
 $installerHostPath = (Get-ConfigValue -Name 'INSTALLER_HOST_PATH' -Default 'E:/mji-data/installer').Trim().Replace('\', '/').TrimEnd('/')
 $installerReleasesHostPath = (Get-ConfigValue -Name 'INSTALLER_RELEASES_HOST_PATH' -Default 'C:/Users/AdministratorOffice/sites/mji-installers').Trim().Replace('\', '/').TrimEnd('/')
@@ -236,6 +192,15 @@ if (-not $smokeOk) {
   Write-Error ('API smoke check failed for ' + $smokeUrl + ': ' + $lastSmokeError)
   exit 1
 }
+
+$backendApi = Resolve-BackendApiUrlOnDockerNetwork -ServerPort ([int]$backendPort)
+if ($backendApi) {
+  Write-Host ('[deploy] Backend net-mji API URL: ' + $backendApi.Url + ' (' + $backendApi.Source + ')')
+} else {
+  Write-Host '[deploy] Backend net-mji IP not resolved (container may not be on net-mji yet)'
+}
+
+Write-BackendNetIpMarker -MarkerPath (Join-Path $resolved '.mji-backend-net-ip.txt') -ServerPort ([int]$backendPort) | Out-Null
 
 $markerPath = Join-Path $resolved '.mji-last-deploy.txt'
 $stamp = (Get-Date).ToUniversalTime().ToString('o')

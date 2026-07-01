@@ -110,6 +110,7 @@ function Resolve-WindowsApiBaseUrl {
     $configured = [string]$ConfiguredApiBaseUrl
     if (-not [string]::IsNullOrWhiteSpace($configured) -and
         $configured -ne 'http://backend:2010' -and
+        $configured -ne 'http://mji-manager-backend:2010' -and
         $configured -notmatch 'host\.docker\.internal') {
         return $configured
     }
